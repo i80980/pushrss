@@ -4,7 +4,6 @@ const NotificationSettings = () => {
   const [newChannel, setNewChannel] = useState({
     name: '',
     endpoint: '',
-    sendTestMessage: false,
     active: true
   });
   const [channels, setChannels] = useState([]);
@@ -49,7 +48,6 @@ const NotificationSettings = () => {
       setNewChannel({
         name: '',
         endpoint: '',
-        sendTestMessage: false,
         active: true
       });
 
@@ -91,12 +89,30 @@ const NotificationSettings = () => {
     }
   };
 
+  // 发送测试消息
+  const sendTestMessage = async (id) => {
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await fetch(`http://localhost:3000/notifications/test/${id}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) throw new Error('Sending test message failed');
+
+      const data = await response.json();
+      setSuccess(data.message);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   // 编辑通知渠道
   const [editingId, setEditingId] = useState(null);
   const [editChannel, setEditChannel] = useState({
     name: '',
     endpoint: '',
-    sendTestMessage: false,
     active: true
   });
 
@@ -110,7 +126,6 @@ const NotificationSettings = () => {
     setEditChannel({
       name: '',
       endpoint: '',
-      sendTestMessage: false,
       active: true
     });
   };
@@ -200,18 +215,6 @@ const NotificationSettings = () => {
           <div className="flex items-center mt-6">
             <input
               type="checkbox"
-              id="sendTestMessage"
-              name="sendTestMessage"
-              checked={newChannel.sendTestMessage}
-              onChange={handleChange}
-              className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-            <label htmlFor="sendTestMessage" className="ml-2 block text-sm text-gray-900">不发送测试消息</label>
-          </div>
-
-          <div className="flex items-center mt-6">
-            <input
-              type="checkbox"
               id="active"
               name="active"
               checked={newChannel.active}
@@ -240,9 +243,6 @@ const NotificationSettings = () => {
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 URL
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                不发送测试消息
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 是否激活
@@ -278,15 +278,6 @@ const NotificationSettings = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <input
                         type="checkbox"
-                        name="sendTestMessage"
-                        checked={editChannel.sendTestMessage}
-                        onChange={handleEditChange}
-                        className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                      />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <input
-                        type="checkbox"
                         name="active"
                         checked={editChannel.active}
                         onChange={handleEditChange}
@@ -313,12 +304,15 @@ const NotificationSettings = () => {
                     <td className="px-6 py-4 whitespace-nowrap">{channel.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{channel.endpoint}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {channel.send_test_message ? '是' : '否'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
                       {channel.active ? '是' : '否'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex space-x-2">
+                      <button
+                        onClick={() => sendTestMessage(channel.id)}
+                        className="text-yellow-600 hover:text-yellow-900"
+                      >
+                        测试
+                      </button>
                       <button
                         onClick={() => startEdit(channel)}
                         className="text-indigo-600 hover:text-indigo-900"

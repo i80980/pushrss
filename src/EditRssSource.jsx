@@ -1,7 +1,10 @@
+// src/EditRssSource.js
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 
-const AddRssSource = () => {
+const EditRssSource = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({ 
     rssUrl: '', 
     name: '',
@@ -13,7 +16,6 @@ const AddRssSource = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [notificationChannels, setNotificationChannels] = useState([]); // 存储通知渠道列表
-  const navigate = useNavigate();
 
   const handleChange = (e) => {
     setFormData((prev) => ({
@@ -38,29 +40,55 @@ const AddRssSource = () => {
     fetchNotificationChannels();
   }, []);
 
-  // 添加新的 RSS 源
+  // 获取现有的 RSS 源数据
+  useEffect(() => {
+    const fetchRssSource = async () => {
+      try {
+        const response = await fetch(`http://localhost:3000/rss-sources/${id}`);
+        if (!response.ok) throw new Error('Failed to fetch RSS source');
+        const data = await response.json();
+        setFormData({
+          rssUrl: data.url,
+          name: data.name,
+          keywords: data.keywords || '',
+          blacklistKeywords: data.blacklist_keywords || '',
+          monitorInterval: data.monitor_interval.toString(),
+          notificationChannelId: data.notification_channel_id || ''
+        });
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+
+    fetchRssSource();
+  }, [id]);
+
+  // 更新现有的 RSS 源
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
     try {
-      const response = await fetch('http://localhost:3000/add-rss', {
-        method: 'POST',
+      const response = await fetch(`http://localhost:3000/rss-sources/${id}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...formData,
-          notificationChannelId: formData.notificationChannelId // 包含选中的通知渠道ID
+          url: formData.rssUrl,
+          name: formData.name,
+          keywords: formData.keywords,
+          blacklist_keywords: formData.blacklistKeywords,
+          monitor_interval: parseInt(formData.monitorInterval),
+          notification_channel_id: formData.notificationChannelId ? parseInt(formData.notificationChannelId) : null
         }),
       });
 
-      if (!response.ok) throw new Error('添加RSS源失败');
+      if (!response.ok) throw new Error('更新RSS源失败');
 
       const data = await response.json();
-      setSuccess('RSS源添加成功');
-      setFormData({ rssUrl: '', name: '', keywords: '', blacklistKeywords: '', monitorInterval: '', notificationChannelId: '' });
+      setSuccess('RSS源更新成功');
       setTimeout(() => {
         navigate('/rss-management'); // 成功后跳转到RSS管理页面
       }, 2000);
@@ -71,7 +99,7 @@ const AddRssSource = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">添加新的RSS源</h1>
+      <h1 className="text-2xl font-bold mb-6">编辑RSS源</h1>
 
       {error && (
         <div className="p-4 mb-4 text-center text-red-700 bg-red-100 rounded-md">
@@ -189,14 +217,11 @@ const AddRssSource = () => {
           type="submit"
           className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
         >
-          添加RSS源
+          更新RSS源
         </button>
       </form>
     </div>
   );
 };
 
-export default AddRssSource;
-
-
-
+export default EditRssSource;

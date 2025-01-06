@@ -164,6 +164,23 @@ const RssManagement = () => {
     return !isNaN(date.getTime());
   };
 
+  // 测试单个 RSS 源
+  const handleTest = async (id) => {
+    try {
+      const response = await fetch(`http://localhost:3000/test-rss/${id}`, { method: 'GET' });
+      if (!response.ok) throw new Error('测试RSS源失败');
+      const data = await response.json();
+      setSuccess(`测试RSS源成功: ${data.message}`);
+    } catch (err) {
+      setError('测试RSS源失败');
+    }
+  };
+
+  // 编辑单个 RSS 源
+  const handleEdit = (id) => {
+    window.location.href = `/edit-rss-source/${id}`;
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">RSS源管理</h1>
@@ -286,10 +303,13 @@ const RssManagement = () => {
                     监控间隔（分钟）
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    通知方式
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     添加时间
                   </th>
                   <th scope="col" className="relative px-6 py-3">
-                    <span className="sr-only">编辑/删除</span>
+                    <span className="sr-only">操作</span>
                   </th>
                 </tr>
               </thead>
@@ -323,12 +343,27 @@ const RssManagement = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>{source.monitor_interval}</div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>{source.notification_channel_name || '无'}</div> {/* 显示通知方式 */}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {isValidDate(source.created_at)
                         ? new Date(source.created_at).toLocaleString()
                         : '未知'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => handleTest(source.id)}
+                        className="text-blue-600 hover:text-blue-800 mr-2"
+                      >
+                        测试
+                      </button>
+                      <button
+                        onClick={() => handleEdit(source.id)}
+                        className="text-yellow-600 hover:text-yellow-800 mr-2"
+                      >
+                        编辑
+                      </button>
                       <button
                         onClick={() => handleDelete(source.id)}
                         className="text-red-600 hover:text-red-800"
