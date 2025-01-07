@@ -9,6 +9,8 @@ const RssManagement = () => {
   const [newBlacklistKeywords, setNewBlacklistKeywords] = useState(''); // 新的黑名单关键词
   const [newKeywords, setNewKeywords] = useState(''); // 新的关键词
   const [newName, setNewName] = useState(''); // 新的名称
+  const [newNotificationChannelId, setNewNotificationChannelId] = useState(''); // 新的通知方式ID
+  const [notificationChannels, setNotificationChannels] = useState([]); // 存储通知渠道
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,22 @@ const RssManagement = () => {
       setLoading(false);
     }
   };
+
+  // 获取所有通知渠道
+  useEffect(() => {
+    const fetchNotificationChannels = async () => {
+      try {
+        const response = await fetch('http://localhost:3000/notifications');
+        if (!response.ok) throw new Error('Failed to fetch notification channels');
+        const data = await response.json();
+        setNotificationChannels(data);
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+
+    fetchNotificationChannels();
+  }, []);
 
   // 初始加载
   useEffect(() => {
@@ -89,6 +107,13 @@ const RssManagement = () => {
         }
         payload = { ids: selectedIds, newKeywords };
         break;
+      case 'updateBlacklistKeywords':
+        if (!newBlacklistKeywords) {
+          setError('请输入新的黑名单关键词进行批量更新');
+          return;
+        }
+        payload = { ids: selectedIds, newBlacklistKeywords };
+        break;
       case 'updateMonitorInterval':
         if (!newMonitorInterval || isNaN(newMonitorInterval) || parseInt(newMonitorInterval) <= 0) {
           setError('请输入有效的监控间隔（分钟）');
@@ -96,12 +121,12 @@ const RssManagement = () => {
         }
         payload = { ids: selectedIds, newMonitorInterval: parseInt(newMonitorInterval) };
         break;
-      case 'updateBlacklistKeywords':
-        if (!newBlacklistKeywords) {
-          setError('请输入新的黑名单关键词进行批量更新');
+      case 'updateNotificationChannel':
+        if (!newNotificationChannelId) {
+          setError('请选择新的通知方式进行批量更新');
           return;
         }
-        payload = { ids: selectedIds, newBlacklistKeywords };
+        payload = { ids: selectedIds, newNotificationChannelId: parseInt(newNotificationChannelId) }; // 确保转换为整数
         break;
       case 'deleteSelected':
         handleDeleteSelected();
@@ -110,6 +135,8 @@ const RssManagement = () => {
         setError('请选择一个批量操作');
         return;
     }
+
+    console.log('Sending payload:', payload); // 添加调试信息
 
     try {
       const response = await fetch('http://localhost:3000/bulk-update-rss', {
@@ -120,7 +147,11 @@ const RssManagement = () => {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error('更新选中的RSS源失败');
+      if (!response.ok) {
+        const errorData = await response.json(); // 尝试获取服务器返回的错误信息
+        setError(errorData.error || '更新选中的RSS源失败');
+        return;
+      }
 
       const data = await response.json();
       setSuccess(`成功更新了${data.updatedCount}个RSS源`);
@@ -130,6 +161,7 @@ const RssManagement = () => {
       setNewBlacklistKeywords(''); // 清空黑名单关键词输入框
       setNewKeywords(''); // 清空关键词输入框
       setNewName(''); // 清空名称输入框
+      setNewNotificationChannelId(''); // 清空通知方式输入框
       fetchSources(); // 刷新列表
     } catch (err) {
       setError('更新选中的RSS源失败');
@@ -182,11 +214,11 @@ const RssManagement = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">RSS源管理</h1>
+    <div className="max-w-full mx-auto p-4">
+      <h1 className="text-xl font-bold mb-4">RSS源管理</h1>
 
       {/* 导航链接 */}
-      <Link to="/add-rss-source" className="inline-block mb-6 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+      <Link to="/add-rss-source" className="inline-block mb-4 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 block w-full sm:inline-block sm:w-auto">
         添加新的RSS源
       </Link>
 
@@ -204,16 +236,16 @@ const RssManagement = () => {
 
       {/* 列表部分 */}
       <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <h2 className="text-xl font-semibold p-6 border-b">RSS源</h2>
+        <h2 className="text-lg font-semibold p-4 border-b">RSS源</h2>
 
         {loading ? (
-          <div className="p-6 text-center text-gray-500">正在加载...</div>
+          <div className="p-4 text-center text-gray-500">正在加载...</div>
         ) : sources.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">尚未添加任何RSS源</div>
+          <div className="p-4 text-center text-gray-500">尚未添加任何RSS源</div>
         ) : (
           <>
-            <div className="flex justify-between items-center p-6 border-b">
-              <div className="flex items-center">
+            <div className="flex flex-col md:flex-row justify-between items-center p-4 border-b">
+              <div className="flex items-center mb-2 md:mb-0">
                 <button
                   onClick={handleSelectAll}
                   className="mr-4 bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300"
@@ -229,8 +261,9 @@ const RssManagement = () => {
                   <option value="">选择批量操作</option>
                   <option value="updateName">更新名称</option>
                   <option value="updateKeywords">更新关键词</option>
-                  <option value="updateMonitorInterval">更新监控间隔</option>
                   <option value="updateBlacklistKeywords">更新黑名单关键词</option>
+                  <option value="updateMonitorInterval">更新监控间隔</option>
+                  <option value="updateNotificationChannel">更新通知方式</option>
                   <option value="deleteSelected">删除选中项</option>
                 </select>
 
@@ -254,6 +287,16 @@ const RssManagement = () => {
                   />
                 )}
 
+                {bulkAction === 'updateBlacklistKeywords' && (
+                  <input
+                    type="text"
+                    value={newBlacklistKeywords}
+                    onChange={(e) => setNewBlacklistKeywords(e.target.value)}
+                    placeholder="新黑名单关键词"
+                    className="p-2 border border-gray-300 rounded-md mr-2"
+                  />
+                )}
+
                 {bulkAction === 'updateMonitorInterval' && (
                   <input
                     type="number"
@@ -264,14 +307,22 @@ const RssManagement = () => {
                   />
                 )}
 
-                {bulkAction === 'updateBlacklistKeywords' && (
-                  <input
-                    type="text"
-                    value={newBlacklistKeywords}
-                    onChange={(e) => setNewBlacklistKeywords(e.target.value)}
-                    placeholder="新黑名单关键词"
-                    className="p-2 border border-gray-300 rounded-md mr-2"
-                  />
+                {bulkAction === 'updateNotificationChannel' && (
+                  <select
+                    id="notificationChannelId"
+                    name="notificationChannelId"
+                    value={newNotificationChannelId}
+                    onChange={(e) => setNewNotificationChannelId(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-md mr-2"
+                    required
+                  >
+                    <option value="">请选择通知方式</option>
+                    {notificationChannels.map(channel => (
+                      <option key={channel.id} value={channel.id}>
+                        {channel.name}
+                      </option>
+                    ))}
+                  </select>
                 )}
 
                 <button
@@ -287,28 +338,28 @@ const RssManagement = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     选择
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     名称/标题
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     关键词
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     黑名单关键词
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     监控间隔（分钟）
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     通知方式
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     添加时间
                   </th>
-                  <th scope="col" className="relative px-6 py-3">
+                  <th scope="col" className="relative px-4 py-3">
                     <span className="sr-only">操作</span>
                   </th>
                 </tr>
@@ -316,7 +367,7 @@ const RssManagement = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {sources.map((source) => (
                   <tr key={source.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(source.id)}
@@ -324,7 +375,7 @@ const RssManagement = () => {
                         className="mr-2"
                       />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <a
                         href={source.url}
                         target="_blank"
@@ -334,24 +385,24 @@ const RssManagement = () => {
                         {source.name || source.title || '无名称/标题'}
                       </a>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap truncate max-w-sm">
                       <div>{source.keywords}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap truncate max-w-sm">
                       <div>{source.blacklist_keywords || '无'}</div> {/* 确保显示默认值 */}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="table-cell px-4 py-4 whitespace-nowrap">
                       <div>{source.monitor_interval}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap">
                       <div>{source.notification_channel_name || '无'}</div> {/* 显示通知方式 */}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                       {isValidDate(source.created_at)
                         ? new Date(source.created_at).toLocaleString()
                         : '未知'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
                         onClick={() => handleTest(source.id)}
                         className="text-blue-600 hover:text-blue-800 mr-2"

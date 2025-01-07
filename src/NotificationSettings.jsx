@@ -15,7 +15,7 @@ const NotificationSettings = () => {
     const fetchChannels = async () => {
       try {
         const response = await fetch('http://localhost:3000/notifications');
-        if (!response.ok) throw new Error('Failed to fetch notification channels');
+        if (!response.ok) throw new Error('获取通知渠道失败');
         const data = await response.json();
         setChannels(data);
       } catch (err) {
@@ -41,7 +41,7 @@ const NotificationSettings = () => {
         body: JSON.stringify(newChannel),
       });
 
-      if (!response.ok) throw new Error('Adding notification channel failed');
+      if (!response.ok) throw new Error('添加通知渠道失败');
 
       const data = await response.json();
       setSuccess(data.message);
@@ -77,7 +77,7 @@ const NotificationSettings = () => {
         method: 'DELETE',
       });
 
-      if (!response.ok) throw new Error('Deleting notification channel failed');
+      if (!response.ok) throw new Error('删除通知渠道失败');
 
       const data = await response.json();
       setSuccess(data.message);
@@ -99,7 +99,7 @@ const NotificationSettings = () => {
         method: 'POST',
       });
 
-      if (!response.ok) throw new Error('Sending test message failed');
+      if (!response.ok) throw new Error('发送测试消息失败');
 
       const data = await response.json();
       setSuccess(data.message);
@@ -151,7 +151,7 @@ const NotificationSettings = () => {
         body: JSON.stringify(editChannel),
       });
 
-      if (!response.ok) throw new Error('Updating notification channel failed');
+      if (!response.ok) throw new Error('更新通知渠道失败');
 
       const data = await response.json();
       setSuccess(data.message);
@@ -199,7 +199,7 @@ const NotificationSettings = () => {
             />
           </div>
 
-          <div>
+          <div className={`md:block ${editingId !== null ? 'block' : 'hidden'}`}>
             <label htmlFor="endpoint" className="block text-sm font-medium text-gray-700">URL</label>
             <input
               type="text"
@@ -224,7 +224,6 @@ const NotificationSettings = () => {
             <label htmlFor="active" className="ml-2 block text-sm text-gray-900">是否激活</label>
           </div>
         </div>
-
         <button
           type="submit"
           className="mt-6 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
@@ -234,7 +233,7 @@ const NotificationSettings = () => {
       </form>
 
       {/* 现有通知渠道列表 */}
-      <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+      <div className="bg-white shadow overflow-x-auto sm:rounded-lg">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -248,7 +247,7 @@ const NotificationSettings = () => {
                 是否激活
               </th>
               <th scope="col" className="relative px-6 py-3">
-                <span className="sr-only">Action</span>
+                <span className="sr-only">操作</span>
               </th>
             </tr>
           </thead>

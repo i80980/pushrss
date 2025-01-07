@@ -299,45 +299,47 @@ app.delete('/rss-sources/:id', (req, res) => {
 
 // 批量更新 RSS 源
 app.post('/bulk-update-rss', (req, res) => {
-  const { ids, newName, newKeywords, newMonitorInterval, newBlacklistKeywords } = req.body;
+  const { ids, newName, newKeywords, newMonitorInterval, newBlacklistKeywords, newNotificationChannelId } = req.body;
 
   // 验证请求数据
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'Invalid request. Please provide valid IDs.' });
   }
 
-  let query = '';
+  let queryParts = [];
   let params = [];
 
   if (newName !== undefined) {
-    query += 'name = ?, ';
+    queryParts.push('name = ?');
     params.push(newName);
   }
 
   if (newKeywords) {
-    query += 'keywords = ?, ';
+    queryParts.push('keywords = ?');
     params.push(newKeywords);
   }
 
   if (typeof newMonitorInterval === 'number') {
-    query += 'monitor_interval = ?, ';
+    queryParts.push('monitor_interval = ?');
     params.push(newMonitorInterval);
   }
 
   if (newBlacklistKeywords) {
-    query += 'blacklist_keywords = ?, ';
+    queryParts.push('blacklist_keywords = ?');
     params.push(newBlacklistKeywords);
   }
 
-  if (query.length === 0) {
+  if (newNotificationChannelId !== undefined) {
+    queryParts.push('notification_channel_id = ?');
+    params.push(newNotificationChannelId);
+  }
+
+  if (queryParts.length === 0) {
     return res.status(400).json({ error: 'No fields to update provided.' });
   }
 
-  // 移除最后一个逗号和空格
-  query = query.slice(0, -2);
-
   // 构建完整的 SQL 查询
-  const fullQuery = `UPDATE rss SET ${query} WHERE id IN (${ids.map(() => '?').join(',')})`;
+  const fullQuery = `UPDATE rss SET ${queryParts.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`;
   params = [...params, ...ids];
 
   db.run(fullQuery, params, function(err) {
@@ -373,7 +375,7 @@ app.post('/notifications', (req, res) => {
       }
 
       res.json({ 
-        message: 'Notification channel added successfully',
+        message: '通知渠道添加成功',
         id: this.lastID 
       });
     }
@@ -399,7 +401,7 @@ app.delete('/notifications/:id', (req, res) => {
       console.error('Error deleting notification channel:', err);
       return res.status(500).json({ error: 'Failed to delete notification channel' });
     }
-    res.json({ message: 'Notification channel deleted successfully' });
+    res.json({ message: '通知渠道删除成功' });
   });
 });
 
@@ -427,7 +429,7 @@ app.put('/notifications/:id', (req, res) => {
       }
 
       res.json({ 
-        message: 'Notification channel updated successfully',
+        message: '通知渠道修改成功',
         id: id 
       });
     }
@@ -494,7 +496,7 @@ app.get('/test-rss/:id', async (req, res) => {
     const blacklistKeywords = source.blacklist_keywords.split(', ').map(k => k.trim());
 
     // 进行测试抓取
-    await fetchRss(source.url, keywords, blacklistKeywords, source.notification_channel_id);
+    await testFetchRss(source.url, keywords, blacklistKeywords, source.notification_channel_id);
 
     res.json({ message: 'RSS 源测试成功' });
   } catch (error) {
@@ -502,6 +504,40 @@ app.get('/test-rss/:id', async (req, res) => {
     res.status(500).json({ error: '测试 RSS 源失败' });
   }
 });
+
+const testFetchRss = async (url, keywords, blacklistKeywords, notificationChannelId) => {
+  try {
+    const feed = await parser.parseURL(url);
+    console.log(`Feed title: ${feed.title}`);
+
+    feed.items.forEach(item => {
+      // 检查黑名单关键词
+      const matchesBlacklist = blacklistKeywords.some(keyword => 
+        (item.title?.toLowerCase() || '').includes(keyword.toLowerCase()) ||
+        (item.content?.toLowerCase() || '').includes(keyword.toLowerCase())
+      );
+
+      if (matchesBlacklist) {
+        console.log(`Item with blacklisted keyword skipped: ${item.title}`);
+        return; // 如果匹配黑名单关键词，则跳过该条目
+      }
+
+      // 检查关键词匹配
+      const matchesKeywords = keywords.some(keyword => 
+        (item.title?.toLowerCase() || '').includes(keyword.toLowerCase()) || 
+        (item.content?.toLowerCase() || '').includes(keyword.toLowerCase())
+      );
+
+      if (matchesKeywords) {
+        console.log(`Matching item found: ${item.title}`);
+        sendToGotify(item.title, item.link, notificationChannelId);
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching RSS feed:', error);
+    throw error;
+  }
+};
 
 // 编辑单个 RSS 源
 app.put('/rss-sources/:id', async (req, res) => {
@@ -562,6 +598,26 @@ app.put('/rss-sources/:id', async (req, res) => {
     console.error('处理请求时出错:', error);
     res.status(500).json({ error: '内部服务器错误' });
   }
+});
+
+// 批量删除 RSS 源
+app.post('/bulk-delete-rss', (req, res) => {
+  const { ids } = req.body;
+
+  // 验证请求数据
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'Invalid request. Please provide valid IDs.' });
+  }
+
+  const query = `DELETE FROM rss WHERE id IN (${ids.map(() => '?').join(',')})`;
+  db.run(query, ids, function(err) {
+    if (err) {
+      console.error('Error deleting RSS sources:', err);
+      return res.status(500).json({ error: 'Failed to delete selected RSS sources' });
+    }
+
+    res.json({ message: 'RSS sources deleted successfully', deletedCount: this.changes });
+  });
 });
 
 // 启动定时任务：每隔一段时间检查所有 RSS 源
