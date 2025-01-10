@@ -26,7 +26,7 @@ const AddRssSource = () => {
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
-        const response = await fetch('http://localhost/api/notifications');
+        const response = await fetch('/api/notifications');
         if (!response.ok) throw new Error('Failed to fetch notification channels');
         const data = await response.json();
         setNotificationChannels(data);
@@ -45,7 +45,7 @@ const AddRssSource = () => {
     setSuccess('');
 
     try {
-      const response = await fetch('http://localhost/api/add-rss', {
+      const response = await fetch('/api/add-rss', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
