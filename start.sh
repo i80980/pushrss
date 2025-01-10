@@ -1,4 +1,8 @@
 #!/bin/sh
-cd /app/backend && node server.js &
-cd /app && serve -s dist -l 5173
-wait
+
+# 启动后端服务
+cd /app/backend
+node server.js &
+
+# 前台运行 nginx
+nginx -g 'daemon off;'
