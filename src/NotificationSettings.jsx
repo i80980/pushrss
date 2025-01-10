@@ -14,7 +14,7 @@ const NotificationSettings = () => {
   useEffect(() => {
     const fetchChannels = async () => {
       try {
-        const response = await fetch('http://localhost:3000/notifications');
+        const response = await fetch('/api/notifications');
         if (!response.ok) throw new Error('获取通知渠道失败');
         const data = await response.json();
         setChannels(data);
@@ -33,7 +33,7 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch('http://localhost:3000/notifications', {
+      const response = await fetch('/api/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,7 +73,7 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`http://localhost:3000/notifications/${id}`, {
+      const response = await fetch(`/api/notifications/${id}`, {
         method: 'DELETE',
       });
 
@@ -95,7 +95,7 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`http://localhost:3000/notifications/test/${id}`, {
+      const response = await fetch(`/api/notifications/test/${id}`, {
         method: 'POST',
       });
 
@@ -143,7 +143,7 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`http://localhost:3000/notifications/${editingId}`, {
+      const response = await fetch(`/api/notifications/${editingId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

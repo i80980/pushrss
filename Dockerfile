@@ -14,7 +14,7 @@ COPY dist/ /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # 设置后端目录并安装后端依赖
-WORKDIR /app/backend
+WORKDIR /app
 COPY backend/package*.json ./
 RUN npm install
 
@@ -30,10 +30,5 @@ RUN npm install -g serve
 EXPOSE 80
 
 
-# 复制启动脚本
-COPY start.sh /app/
-RUN chmod +x /app/start.sh
-
-# 运行启动脚本
-CMD ["/app/start.sh"]
-
+# 启动后端服务并前台运行 nginx
+CMD ["sh", "-c", "node server.js & nginx -g 'daemon off;'"]

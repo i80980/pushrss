@@ -28,7 +28,7 @@ const EditRssSource = () => {
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
-        const response = await fetch('http://localhost:3000/notifications');
+        const response = await fetch('/api/notifications');
         if (!response.ok) throw new Error('Failed to fetch notification channels');
         const data = await response.json();
         setNotificationChannels(data);
@@ -44,7 +44,7 @@ const EditRssSource = () => {
   useEffect(() => {
     const fetchRssSource = async () => {
       try {
-        const response = await fetch(`http://localhost:3000/rss-sources/${id}`);
+        const response = await fetch(`/api/rss-sources/${id}`);
         if (!response.ok) throw new Error('Failed to fetch RSS source');
         const data = await response.json();
         setFormData({
@@ -70,7 +70,7 @@ const EditRssSource = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`http://localhost:3000/rss-sources/${id}`, {
+      const response = await fetch(`/api/rss-sources/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

@@ -18,7 +18,7 @@ const RssManagement = () => {
   // 获取所有 RSS 源
   const fetchSources = async () => {
     try {
-      const response = await fetch('http://localhost:3000/rss-sources');
+      const response = await fetch('/api/rss-sources');
       if (!response.ok) throw new Error('获取RSS源失败');
       const data = await response.json();
       setSources(data);
@@ -33,7 +33,7 @@ const RssManagement = () => {
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
-        const response = await fetch('http://localhost:3000/notifications');
+        const response = await fetch('/api/notifications');
         if (!response.ok) throw new Error('Failed to fetch notification channels');
         const data = await response.json();
         setNotificationChannels(data);
@@ -57,7 +57,7 @@ const RssManagement = () => {
     }
 
     try {
-      await fetch(`http://localhost:3000/rss-sources/${id}`, { method: 'DELETE' });
+      await fetch(`/api/rss-sources/${id}`, { method: 'DELETE' });
       setSuccess('RSS源删除成功');
       fetchSources(); // 刷新列表
     } catch (err) {
@@ -73,7 +73,7 @@ const RssManagement = () => {
 
     try {
       const promises = selectedIds.map(id =>
-        fetch(`http://localhost:3000/rss-sources/${id}`, { method: 'DELETE' })
+        fetch(`/api/rss-sources/${id}`, { method: 'DELETE' })
       );
       await Promise.all(promises);
       setSuccess('选中的RSS源删除成功');
@@ -139,7 +139,7 @@ const RssManagement = () => {
     console.log('Sending payload:', payload); // 添加调试信息
 
     try {
-      const response = await fetch('http://localhost:3000/bulk-update-rss', {
+      const response = await fetch('/api/bulk-update-rss', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -199,7 +199,7 @@ const RssManagement = () => {
   // 测试单个 RSS 源
   const handleTest = async (id) => {
     try {
-      const response = await fetch(`http://localhost:3000/test-rss/${id}`, { method: 'GET' });
+      const response = await fetch(`/api/test-rss/${id}`, { method: 'GET' });
       if (!response.ok) throw new Error('测试RSS源失败');
       const data = await response.json();
       setSuccess(`测试RSS源成功: ${data.message}`);
