@@ -83,6 +83,9 @@ const NotificationSettings = () => {
     try {
       const response = await fetch(`${config.API_BASE_URL}/api/notifications/${id}`, {
         method: 'DELETE',
+        headers: {
+          ...getAuthHeaders()
+        }
       });
 
       if (!response.ok) throw new Error('删除通知渠道失败');
@@ -105,6 +108,9 @@ const NotificationSettings = () => {
     try {
       const response = await fetch(`${config.API_BASE_URL}/api/notifications/test/${id}`, {
         method: 'POST',
+        headers: {
+          ...getAuthHeaders()
+        }
       });
 
       if (!response.ok) throw new Error('发送测试消息失败');
