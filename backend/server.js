@@ -114,7 +114,63 @@ db.serialize(() => {
       console.log('notifications table created or already exists');
     }
   });
+
+  // 创建 sent_messages 表，用于记录已发送的消息
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sent_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rss_id INTEGER NOT NULL, -- RSS 源 ID
+      message_guid TEXT, -- 消息唯一标识
+      message_link TEXT, -- 消息链接
+      message_title TEXT, -- 消息标题
+      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 发送时间
+      FOREIGN KEY(rss_id) REFERENCES rss(id) ON DELETE CASCADE
+    );
+  `, (err) => {
+    if (err) {
+      console.error('Error creating sent_messages table:', err);
+    } else {
+      console.log('sent_messages table created or already exists');
+    }
+  });
 });
+
+// 检查消息是否已经发送过
+const isMessageAlreadySent = (rssId, messageGuid, messageLink, messageTitle) => {
+  return new Promise((resolve, reject) => {
+    // 优先使用 guid 检查，如果没有 guid 则使用链接和标题组合检查
+    const query = messageGuid 
+      ? "SELECT * FROM sent_messages WHERE rss_id = ? AND message_guid = ?"
+      : "SELECT * FROM sent_messages WHERE rss_id = ? AND message_link = ? AND message_title = ?";
+    
+    const params = messageGuid 
+      ? [rssId, messageGuid]
+      : [rssId, messageLink, messageTitle];
+    
+    db.get(query, params, (err, row) => {
+      if (err) {
+        return reject(err);
+      }
+      resolve(!!row); // 如果找到记录，返回 true，否则返回 false
+    });
+  });
+};
+
+// 记录已发送的消息
+const recordSentMessage = (rssId, messageGuid, messageLink, messageTitle) => {
+  return new Promise((resolve, reject) => {
+    db.run(
+      "INSERT INTO sent_messages (rss_id, message_guid, message_link, message_title) VALUES (?, ?, ?, ?)",
+      [rssId, messageGuid, messageLink, messageTitle],
+      function(err) {
+        if (err) {
+          return reject(err);
+        }
+        resolve(this.lastID);
+      }
+    );
+  });
+};
 
 const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId) => {
   try {
@@ -135,7 +191,7 @@ const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId)
     const feed = await parser.parseURL(url);
     console.log(`Feed title: ${feed.title}`);
 
-    feed.items.forEach(item => {
+    for (const item of feed.items) {
       // 检查黑名单关键词
       const matchesBlacklist = blacklistKeywords.some(keyword => 
         (item.title?.toLowerCase() || '').includes(keyword.toLowerCase()) ||
@@ -144,7 +200,7 @@ const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId)
 
       if (matchesBlacklist) {
         console.log(`Item with blacklisted keyword skipped: ${item.title}`);
-        return; // 如果匹配黑名单关键词，则跳过该条目
+        continue; // 如果匹配黑名单关键词，则跳过该条目
       }
 
       // 检查关键词匹配
@@ -154,10 +210,26 @@ const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId)
       );
 
       if (matchesKeywords) {
+        // 检查消息是否已经发送过
+        const alreadySent = await isMessageAlreadySent(
+          sourceData.id, 
+          item.guid, 
+          item.link, 
+          item.title
+        );
+
+        if (alreadySent) {
+          console.log(`Message already sent, skipping: ${item.title}`);
+          continue;
+        }
+
         console.log(`Matching item found: ${item.title}`);
-        sendToGotify(item.title, item.link, notificationChannelId);
+        await sendToGotify(sourceData.name, item.title, item.content, item.link, notificationChannelId);
+        
+        // 记录已发送的消息
+        await recordSentMessage(sourceData.id, item.guid, item.link, item.title);
       }
-    });
+    }
 
     // 更新数据库中的 last_checked 时间
     await updateLastChecked(url, now);
@@ -191,7 +263,7 @@ const updateLastChecked = (url, date) => {
   });
 };
 
-const sendToGotify = async (title, link, channelId) => {
+const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channelId) => {
   try {
     if (!config.gotify.url || !config.gotify.token) {
       throw new Error('Gotify configuration is missing');
@@ -204,9 +276,34 @@ const sendToGotify = async (title, link, channelId) => {
       return;
     }
 
+    // 格式化标题为"xx名称更新了"
+    const title = `${sourceName || 'RSS'} 更新了`;
+    
+    // 处理 itemContent 可能为 undefined 的情况
+    let content = itemContent ? itemContent.trim() : '';
+    
+    // 提取所有图片链接
+    const imgRegex = /<img[^>]+src="([^">]+)"/g;
+    const imgLinks = [];
+    let match;
+    while ((match = imgRegex.exec(content)) !== null) {
+      imgLinks.push(match[1]);
+    }
+    
+    // 去除HTML标签
+    content = content.replace(/<[^>]*>/g, '');
+    
+    // 添加提取的图片链接到内容末尾
+    if (imgLinks.length > 0) {
+      content += '\n\n图片链接:\n' + imgLinks.join('\n');
+    }
+    
+    // 格式化内容为"RSS的标题+RSS的内容+RSS的链接"
+    const message = `${itemTitle}\n\n${content}\n\n${itemLink}`;
+
     const response = await axios.post(channel.endpoint, {
       title: title,
-      message: link,
+      message: message,
       priority: config.gotify.priority
     }, {
       headers: {
@@ -490,11 +587,13 @@ app.post('/api/notifications/test/:id', async (req, res) => {
     }
 
     // 准备测试消息内容
-    const testTitle = `${channel.name} 测试消息`;
-    const testMessage = `这是来自 ${channel.name} 的测试消息`;
+    const testSourceName = `${channel.name}`;
+    const testTitle = `测试标题`;
+    const testContent = `这是一条测试内容`;
+    const testLink = `https://example.com/test`;
 
     // 发送测试消息
-    await sendToGotify(testTitle, testMessage, id);
+    await sendToGotify(testSourceName, testTitle, testContent, testLink, id);
 
     res.json({ message: '测试消息发送成功' });
   } catch (error) {
@@ -549,10 +648,13 @@ app.get('/api/test-rss/:id', async (req, res) => {
 
 const testFetchRss = async (url, keywords, blacklistKeywords, notificationChannelId) => {
   try {
+    // 获取 RSS 源的数据，以便获取名称
+    const sourceData = await getSourceData(url);
+    
     const feed = await parser.parseURL(url);
     console.log(`Feed title: ${feed.title}`);
 
-    feed.items.forEach(item => {
+    for (const item of feed.items) {
       // 检查黑名单关键词
       const matchesBlacklist = blacklistKeywords.some(keyword => 
         (item.title?.toLowerCase() || '').includes(keyword.toLowerCase()) ||
@@ -561,7 +663,7 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
 
       if (matchesBlacklist) {
         console.log(`Item with blacklisted keyword skipped: ${item.title}`);
-        return; // 如果匹配黑名单关键词，则跳过该条目
+        continue; // 如果匹配黑名单关键词，则跳过该条目
       }
 
       // 检查关键词匹配
@@ -571,10 +673,26 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
       );
 
       if (matchesKeywords) {
+        // 检查消息是否已经发送过
+        const alreadySent = await isMessageAlreadySent(
+          sourceData.id, 
+          item.guid, 
+          item.link, 
+          item.title
+        );
+
+        if (alreadySent) {
+          console.log(`Message already sent, skipping: ${item.title}`);
+          continue;
+        }
+
         console.log(`Matching item found: ${item.title}`);
-        sendToGotify(item.title, item.link, notificationChannelId);
+        await sendToGotify(sourceData.name, item.title, item.content, item.link, notificationChannelId);
+        
+        // 记录已发送的消息
+        await recordSentMessage(sourceData.id, item.guid, item.link, item.title);
       }
-    });
+    }
   } catch (error) {
     console.error('Error fetching RSS feed:', error);
     throw error;
@@ -662,6 +780,20 @@ app.post('/api/bulk-delete-rss', (req, res) => {
   });
 });
 
+// 清理旧的已发送消息记录（保留最近30天的记录）
+const cleanupOldSentMessages = () => {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  db.run("DELETE FROM sent_messages WHERE sent_at < ?", [thirtyDaysAgo.toISOString()], function(err) {
+    if (err) {
+      console.error('Error cleaning up old sent messages:', err);
+      return;
+    }
+    console.log(`Cleaned up ${this.changes} old sent message records`);
+  });
+};
+
 // 启动定时任务：每隔一段时间检查所有 RSS 源
 const checkAllRssSources = async () => {
   db.all("SELECT * FROM rss", [], async (err, rows) => {
@@ -684,6 +816,9 @@ const checkAllRssSources = async () => {
 
 // 启动定时任务，每分钟检查一次（实际应用中可以根据需要调整）
 setInterval(checkAllRssSources, 60 * 1000);
+
+// 每天清理一次旧的消息记录
+setInterval(cleanupOldSentMessages, 24 * 60 * 60 * 1000);
 
 // 优雅关闭
 process.on('SIGINT', () => {
