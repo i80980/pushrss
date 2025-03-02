@@ -76,7 +76,7 @@ services:
 ```bash
 ACCESS_PASSWORD=你的密码
 ``` 
-
+修改后重启容器
 
 
 
