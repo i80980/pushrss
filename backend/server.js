@@ -301,7 +301,7 @@ const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channe
     markdownMessage += `> ${content}\n\n`;
     
     // 添加链接部分，使用emoji美化
-    markdownMessage += `🔗 **链接**: [点击查看详情](${itemLink})\n\n`;
+    markdownMessage += `🔗 **链接**: [查看详情](${itemLink})\n\n`;
     
     // 添加提取的图片链接到内容末尾，作为超链接而非图片
     if (imgLinks.length > 0) {
