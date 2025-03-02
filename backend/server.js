@@ -295,7 +295,7 @@ const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channe
     
     // 使用Markdown格式化消息
     // 标题加粗并添加emoji
-    let markdownMessage = `#### 📌 **${itemTitle}**\n\n`;
+    let markdownMessage = `#### **${itemTitle}**\n\n`;
     
     // 内容部分添加引用格式
     markdownMessage += `> ${content}\n\n`;

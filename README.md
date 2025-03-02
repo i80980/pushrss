@@ -35,12 +35,13 @@ PushRSS 是一个简单的 RSS 订阅和推送管理系统。它允许用户订�
 2. 创建 `rss.db` 文件和 `.env` 文件。
 3. 运行以下命令以启动容器：
    ```bash
-   docker run -d \
-     --name pushrss \
-     -p 6666:80 \
-     -v ./rss.db:/app/rss.db \
-     -v ./.env:/app/.env \
-     i80980/pushrss:latest
+  docker run -d \
+    --name pushrss \
+    -p 6666:80 \
+    -v ./rss.db:/app/rss.db \
+    -v ./.env:/app/.env \
+    -e TZ=Asia/Shanghai \
+    i80980/pushrss:latest
    ```
 4. 访问 `6666`端口 以使用 PushRSS。
 
@@ -60,6 +61,8 @@ services:
     volumes:
       - ./rss.db:/app/rss.db
       - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Shanghai
 ```
 4. 在终端中导航到该文件所在目录。
 5. 运行以下命令以启动服务：
@@ -90,6 +93,8 @@ services:
     volumes:
       - ./rss.db:/app/rss.db
       - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Shanghai
   rsshub:
     image: diygod/rsshub
     ports:
