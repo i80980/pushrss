@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
+import config from './config';
 
 const NotificationSettings = () => {
   const [newChannel, setNewChannel] = useState({
@@ -9,12 +11,17 @@ const NotificationSettings = () => {
   const [channels, setChannels] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const { getAuthHeaders } = useAuth();
 
   // 获取所有通知渠道
   useEffect(() => {
     const fetchChannels = async () => {
       try {
-        const response = await fetch('/api/notifications');
+        const response = await fetch(`${config.API_BASE_URL}/api/notifications`, {
+          headers: {
+            ...getAuthHeaders()
+          }
+        });
         if (!response.ok) throw new Error('获取通知渠道失败');
         const data = await response.json();
         setChannels(data);
@@ -24,7 +31,7 @@ const NotificationSettings = () => {
     };
 
     fetchChannels();
-  }, []);
+  }, [getAuthHeaders]);
 
   // 添加通知渠道
   const handleSubmit = async (e) => {
@@ -33,10 +40,11 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch('/api/notifications', {
+      const response = await fetch(`${config.API_BASE_URL}/api/notifications`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
         body: JSON.stringify(newChannel),
       });
@@ -73,7 +81,7 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`/api/notifications/${id}`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/notifications/${id}`, {
         method: 'DELETE',
       });
 
@@ -95,7 +103,7 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`/api/notifications/test/${id}`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/notifications/test/${id}`, {
         method: 'POST',
       });
 
@@ -143,10 +151,11 @@ const NotificationSettings = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`/api/notifications/${editingId}`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/notifications/${editingId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
         body: JSON.stringify(editChannel),
       });

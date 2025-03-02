@@ -1,7 +1,16 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
 
 const Navbar = () => {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
   return (
     <nav className="bg-gray-800 p-4">
       <div className="container mx-auto flex justify-between items-center">
@@ -20,6 +29,14 @@ const Navbar = () => {
             <Link to="/notification-settings" className="text-gray-300 hover:text-white">
               通知渠道
             </Link>
+          </li>
+          <li>
+            <button 
+              onClick={handleLogout} 
+              className="text-gray-300 hover:text-white cursor-pointer"
+            >
+              退出登录
+            </button>
           </li>
           {/* 其他导航项 */}
         </ul>

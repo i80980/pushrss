@@ -1,6 +1,8 @@
 // src/EditRssSource.js
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+import config from './config';
 
 const EditRssSource = () => {
   const { id } = useParams();
@@ -16,6 +18,7 @@ const EditRssSource = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [notificationChannels, setNotificationChannels] = useState([]); // 存储通知渠道列表
+  const { getAuthHeaders } = useAuth();
 
   const handleChange = (e) => {
     setFormData((prev) => ({
@@ -28,7 +31,11 @@ const EditRssSource = () => {
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
-        const response = await fetch('/api/notifications');
+        const response = await fetch(`${config.API_BASE_URL}/api/notifications`, {
+          headers: {
+            ...getAuthHeaders()
+          }
+        });
         if (!response.ok) throw new Error('Failed to fetch notification channels');
         const data = await response.json();
         setNotificationChannels(data);
@@ -38,13 +45,17 @@ const EditRssSource = () => {
     };
 
     fetchNotificationChannels();
-  }, []);
+  }, [getAuthHeaders]);
 
   // 获取现有的 RSS 源数据
   useEffect(() => {
     const fetchRssSource = async () => {
       try {
-        const response = await fetch(`/api/rss-sources/${id}`);
+        const response = await fetch(`${config.API_BASE_URL}/api/rss-sources/${id}`, {
+          headers: {
+            ...getAuthHeaders()
+          }
+        });
         if (!response.ok) throw new Error('Failed to fetch RSS source');
         const data = await response.json();
         setFormData({
@@ -61,7 +72,7 @@ const EditRssSource = () => {
     };
 
     fetchRssSource();
-  }, [id]);
+  }, [id, getAuthHeaders]);
 
   // 更新现有的 RSS 源
   const handleSubmit = async (e) => {
@@ -70,10 +81,11 @@ const EditRssSource = () => {
     setSuccess('');
 
     try {
-      const response = await fetch(`/api/rss-sources/${id}`, {
+      const response = await fetch(`${config.API_BASE_URL}/api/rss-sources/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
           url: formData.rssUrl,

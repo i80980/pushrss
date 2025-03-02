@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+import config from './config';
 
 const AddRssSource = () => {
   const [formData, setFormData] = useState({ 
@@ -14,6 +16,7 @@ const AddRssSource = () => {
   const [success, setSuccess] = useState('');
   const [notificationChannels, setNotificationChannels] = useState([]); // 存储通知渠道列表
   const navigate = useNavigate();
+  const { getAuthHeaders } = useAuth();
 
   const handleChange = (e) => {
     setFormData((prev) => ({
@@ -26,7 +29,11 @@ const AddRssSource = () => {
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
-        const response = await fetch('/api/notifications');
+        const response = await fetch(`${config.API_BASE_URL}/api/notifications`, {
+          headers: {
+            ...getAuthHeaders()
+          }
+        });
         if (!response.ok) throw new Error('Failed to fetch notification channels');
         const data = await response.json();
         setNotificationChannels(data);
@@ -36,7 +43,7 @@ const AddRssSource = () => {
     };
 
     fetchNotificationChannels();
-  }, []);
+  }, [getAuthHeaders]);
 
   // 添加新的 RSS 源
   const handleSubmit = async (e) => {
@@ -45,10 +52,11 @@ const AddRssSource = () => {
     setSuccess('');
 
     try {
-      const response = await fetch('/api/add-rss', {
+      const response = await fetch(`${config.API_BASE_URL}/api/add-rss`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
           ...formData,

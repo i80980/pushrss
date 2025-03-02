@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+import config from './config';
 
 const RssManagement = () => {
   const [sources, setSources] = useState([]);
@@ -14,11 +16,16 @@ const RssManagement = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(true);
+  const { getAuthHeaders } = useAuth();
 
   // 获取所有 RSS 源
   const fetchSources = async () => {
     try {
-      const response = await fetch('/api/rss-sources');
+      const response = await fetch(`${config.API_BASE_URL}${config.API_PREFIX}/rss-sources`, {
+        headers: {
+          ...getAuthHeaders()
+        }
+      });
       if (!response.ok) throw new Error('获取RSS源失败');
       const data = await response.json();
       setSources(data);
@@ -33,7 +40,11 @@ const RssManagement = () => {
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
-        const response = await fetch('/api/notifications');
+        const response = await fetch(`${config.API_BASE_URL}${config.API_PREFIX}/notifications`, {
+          headers: {
+            ...getAuthHeaders()
+          }
+        });
         if (!response.ok) throw new Error('Failed to fetch notification channels');
         const data = await response.json();
         setNotificationChannels(data);
@@ -43,7 +54,7 @@ const RssManagement = () => {
     };
 
     fetchNotificationChannels();
-  }, []);
+  }, [getAuthHeaders]);
 
   // 初始加载
   useEffect(() => {
@@ -57,7 +68,12 @@ const RssManagement = () => {
     }
 
     try {
-      await fetch(`/api/rss-sources/${id}`, { method: 'DELETE' });
+      await fetch(`${config.API_BASE_URL}${config.API_PREFIX}/rss-sources/${id}`, { 
+        method: 'DELETE',
+        headers: {
+          ...getAuthHeaders()
+        }
+      });
       setSuccess('RSS源删除成功');
       fetchSources(); // 刷新列表
     } catch (err) {
@@ -73,7 +89,12 @@ const RssManagement = () => {
 
     try {
       const promises = selectedIds.map(id =>
-        fetch(`/api/rss-sources/${id}`, { method: 'DELETE' })
+        fetch(`${config.API_BASE_URL}${config.API_PREFIX}/rss-sources/${id}`, { 
+          method: 'DELETE',
+          headers: {
+            ...getAuthHeaders()
+          }
+        })
       );
       await Promise.all(promises);
       setSuccess('选中的RSS源删除成功');
@@ -139,10 +160,11 @@ const RssManagement = () => {
     console.log('Sending payload:', payload); // 添加调试信息
 
     try {
-      const response = await fetch('/api/bulk-update-rss', {
+      const response = await fetch(`${config.API_BASE_URL}${config.API_PREFIX}/bulk-update-rss`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
         body: JSON.stringify(payload),
       });
@@ -199,7 +221,12 @@ const RssManagement = () => {
   // 测试单个 RSS 源
   const handleTest = async (id) => {
     try {
-      const response = await fetch(`/api/test-rss/${id}`, { method: 'GET' });
+      const response = await fetch(`${config.API_BASE_URL}${config.API_PREFIX}/test-rss/${id}`, { 
+        method: 'GET',
+        headers: {
+          ...getAuthHeaders()
+        }
+      });
       if (!response.ok) throw new Error('测试RSS源失败');
       const data = await response.json();
       setSuccess(`测试RSS源成功: ${data.message}`);

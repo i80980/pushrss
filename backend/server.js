@@ -3,18 +3,20 @@ const cors = require('cors');
 const axios = require('axios');
 const Parser = require('rss-parser');
 const sqlite3 = require('sqlite3').verbose();
+require('dotenv').config(); // 导入dotenv包读取.env文件
 
 // 硬编码配置
 const config = {
-  port: 3000,
+  port: process.env.PORT || 3000,
   gotify: {
     url: 'http://gotify.example.com/message', // 替换为实际的 Gotify URL
     token: 'your-gotify-token-here',         // 替换为实际的 Gotify Token
     priority: 5                              // 默认优先级
   },
   db: {
-    path: './rss.db'
-  }
+    path: process.env.DB_PATH || './rss.db'
+  },
+  accessPassword: process.env.ACCESS_PASSWORD || 'admin' // 添加访问密码配置
 };
 
 const app = express();
@@ -23,6 +25,46 @@ const parser = new Parser();
 // 中间件
 app.use(cors());
 app.use(express.json());
+
+// 添加登录API接口 - 放在中间件之前
+app.post('/api/login', (req, res) => {
+  const { password } = req.body;
+  
+  if (!password) {
+    return res.status(400).json({ error: '请提供密码' });
+  }
+  
+  if (password === config.accessPassword) {
+    return res.json({ 
+      success: true, 
+      token: config.accessPassword,
+      message: '登录成功' 
+    });
+  } else {
+    return res.status(401).json({ 
+      success: false, 
+      error: '密码错误' 
+    });
+  }
+});
+
+// 密码验证中间件
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: '未授权访问' });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  if (token !== config.accessPassword) {
+    return res.status(401).json({ error: '访问令牌无效' });
+  }
+  
+  next();
+};
+
+// 应用密码验证中间件
+app.use('/api', authMiddleware);
 
 // 初始化数据库
 const db = new sqlite3.Database(config.db.path, (err) => {
@@ -180,7 +222,7 @@ const sendToGotify = async (title, link, channelId) => {
   }
 };
 
-app.post('/add-rss', async (req, res) => {
+app.post('/api/add-rss', async (req, res) => {
   const { rssUrl, name, keywords, blacklistKeywords, monitorInterval, notificationChannelId } = req.body;
 
   try {
@@ -240,7 +282,7 @@ app.post('/add-rss', async (req, res) => {
 });
 
 // 获取所有 RSS 源及其通知渠道信息
-app.get('/rss-sources', (req, res) => {
+app.get('/api/rss-sources', (req, res) => {
   db.all(`
     SELECT 
       rss.*,
@@ -261,7 +303,7 @@ app.get('/rss-sources', (req, res) => {
 });
 
 // 获取单个 RSS 源及其通知渠道信息
-app.get('/rss-sources/:id', (req, res) => {
+app.get('/api/rss-sources/:id', (req, res) => {
   const id = req.params.id;
   db.get(`
     SELECT 
@@ -286,7 +328,7 @@ app.get('/rss-sources/:id', (req, res) => {
 });
 
 // 删除 RSS 源
-app.delete('/rss-sources/:id', (req, res) => {
+app.delete('/api/rss-sources/:id', (req, res) => {
   const id = req.params.id;
   db.run("DELETE FROM rss WHERE id = ?", id, (err) => {
     if (err) {
@@ -298,7 +340,7 @@ app.delete('/rss-sources/:id', (req, res) => {
 });
 
 // 批量更新 RSS 源
-app.post('/bulk-update-rss', (req, res) => {
+app.post('/api/bulk-update-rss', (req, res) => {
   const { ids, newName, newKeywords, newMonitorInterval, newBlacklistKeywords, newNotificationChannelId } = req.body;
 
   // 验证请求数据
@@ -353,7 +395,7 @@ app.post('/bulk-update-rss', (req, res) => {
 });
 
 // 添加通知渠道
-app.post('/notifications', (req, res) => {
+app.post('/api/notifications', (req, res) => {
   const { name, endpoint, active } = req.body;
 
   // 输入验证
@@ -383,7 +425,7 @@ app.post('/notifications', (req, res) => {
 });
 
 // 获取所有通知渠道
-app.get('/notifications', (req, res) => {
+app.get('/api/notifications', (req, res) => {
   db.all("SELECT * FROM notifications ORDER BY created_at DESC", [], (err, rows) => {
     if (err) {
       console.error('Error fetching notification channels:', err);
@@ -394,7 +436,7 @@ app.get('/notifications', (req, res) => {
 });
 
 // 删除通知渠道
-app.delete('/notifications/:id', (req, res) => {
+app.delete('/api/notifications/:id', (req, res) => {
   const id = req.params.id;
   db.run("DELETE FROM notifications WHERE id = ?", id, (err) => {
     if (err) {
@@ -406,7 +448,7 @@ app.delete('/notifications/:id', (req, res) => {
 });
 
 // 更新通知渠道
-app.put('/notifications/:id', (req, res) => {
+app.put('/api/notifications/:id', (req, res) => {
   const id = req.params.id;
   const { name, endpoint, active } = req.body;
 
@@ -437,7 +479,7 @@ app.put('/notifications/:id', (req, res) => {
 });
 
 // 发送测试消息
-app.post('/notifications/test/:id', async (req, res) => {
+app.post('/api/notifications/test/:id', async (req, res) => {
   const id = req.params.id;
 
   try {
@@ -474,7 +516,7 @@ const getNotificationChannel = (id) => {
 };
 
 // 测试单个 RSS 源
-app.get('/test-rss/:id', async (req, res) => {
+app.get('/api/test-rss/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -540,7 +582,7 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
 };
 
 // 编辑单个 RSS 源
-app.put('/rss-sources/:id', async (req, res) => {
+app.put('/api/rss-sources/:id', async (req, res) => {
   const id = req.params.id;
   const { name, url, keywords, blacklist_keywords, monitor_interval, notification_channel_id } = req.body;
 
@@ -601,7 +643,7 @@ app.put('/rss-sources/:id', async (req, res) => {
 });
 
 // 批量删除 RSS 源
-app.post('/bulk-delete-rss', (req, res) => {
+app.post('/api/bulk-delete-rss', (req, res) => {
   const { ids } = req.body;
 
   // 验证请求数据
@@ -652,7 +694,8 @@ process.on('SIGINT', () => {
 });
 
 // 启动服务器
-app.listen(config.port, () => {
-  console.log(`Server running at http://localhost:${config.port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
   console.log('Environment:', process.env.NODE_ENV || 'development');
 });
