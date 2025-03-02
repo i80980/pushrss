@@ -1,6 +1,6 @@
 # PushRSS
 
-PushRSS 是一个简单的 RSS 订阅和推送管理系统。它允许用户订阅 RSS 源并通过不同的通知渠道接收更新。
+PushRSS 是一个简单的 RSS 订阅和推送管理系统。它允许用户订阅 RSS 源并通过Gotify通知渠道接收更新。
 
 > 建议搭配RSSHUB使用 
 
@@ -79,7 +79,25 @@ ACCESS_PASSWORD=你的密码
 修改后重启容器
 
 
-
+# 搭配RssHub使用
+```bash
+services:
+  pushrss:
+    container_name: pushrss
+    image: i80980/pushrss:latest
+    ports:
+      - "6666:80"
+    volumes:
+      - ./rss.db:/app/rss.db
+      - ./.env:/app/.env
+  rsshub:
+    image: diygod/rsshub
+    ports:
+      - 1200:1200
+    environment:
+      - CACHE_EXPIRE=60
+```
+将rsshub缓存时间设置为60秒，及时收到rss更新推送
 
 
 
