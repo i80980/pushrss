@@ -276,8 +276,8 @@ const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channe
       return;
     }
 
-    // 格式化标题为"xx名称更新了"
-    const title = `${sourceName || 'RSS'} 更新了`;
+    // 格式化标题为"xx名称更新了"，添加emoji
+    const title = `📢 ${sourceName || 'RSS'} 更新了`;
     
     // 处理 itemContent 可能为 undefined 的情况
     let content = itemContent ? itemContent.trim() : '';
@@ -293,18 +293,37 @@ const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channe
     // 去除HTML标签
     content = content.replace(/<[^>]*>/g, '');
     
-    // 添加提取的图片链接到内容末尾
+    // 使用Markdown格式化消息
+    // 标题加粗并添加emoji
+    let markdownMessage = `#### 📌 **${itemTitle}**\n\n`;
+    
+    // 内容部分添加引用格式
+    markdownMessage += `> ${content}\n\n`;
+    
+    // 添加链接部分，使用emoji美化
+    markdownMessage += `🔗 **链接**: [点击查看详情](${itemLink})\n\n`;
+    
+    // 添加提取的图片链接到内容末尾，作为超链接而非图片
     if (imgLinks.length > 0) {
-      content += '\n\n图片链接:\n' + imgLinks.join('\n');
+      markdownMessage += `📷 **图片**:\n`;
+      imgLinks.forEach((link, index) => {
+        markdownMessage += `[图片${index + 1}](${link})\n`;
+      });
     }
     
-    // 格式化内容为"RSS的标题+RSS的内容+RSS的链接"
-    const message = `${itemTitle}\n\n${content}\n\n${itemLink}`;
+    // 添加时间戳
+    const now = new Date();
+    markdownMessage += `\n⏱️ ${now.toLocaleString('zh-CN')}`;
 
     const response = await axios.post(channel.endpoint, {
       title: title,
-      message: message,
-      priority: config.gotify.priority
+      message: markdownMessage,
+      priority: config.gotify.priority,
+      extras: {
+        "client::display": {
+          "contentType": "text/markdown"
+        }
+      }
     }, {
       headers: {
         'X-Gotify-Key': config.gotify.token
@@ -588,8 +607,32 @@ app.post('/api/notifications/test/:id', async (req, res) => {
 
     // 准备测试消息内容
     const testSourceName = `${channel.name}`;
-    const testTitle = `测试标题`;
-    const testContent = `这是一条测试内容`;
+    const testTitle = `Markdown格式测试`;
+    const testContent = `
+这是一条测试内容，支持**加粗**、*斜体*和~~删除线~~格式。
+
+- 列表项1
+- 列表项2
+- 列表项3
+
+> 这是引用文本
+> 可以有多行
+
+\`\`\`
+这是代码块
+console.log('Hello World');
+\`\`\`
+
+表格示例：
+| 名称 | 值 |
+|------|-----|
+| 测试1 | 数据1 |
+| 测试2 | 数据2 |
+
+📷 **图片链接示例**:
+[图片1](https://example.com/image1.jpg)
+[图片2](https://example.com/image2.jpg)
+`;
     const testLink = `https://example.com/test`;
 
     // 发送测试消息
@@ -687,6 +730,7 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
         }
 
         console.log(`Matching item found: ${item.title}`);
+        // 使用相同的sendToGotify函数，确保测试消息也使用Markdown格式
         await sendToGotify(sourceData.name, item.title, item.content, item.link, notificationChannelId);
         
         // 记录已发送的消息
