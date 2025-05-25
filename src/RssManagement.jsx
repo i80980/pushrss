@@ -11,8 +11,12 @@ const RssManagement = () => {
   const [newBlacklistKeywords, setNewBlacklistKeywords] = useState(''); // 新的黑名单关键词
   const [newKeywords, setNewKeywords] = useState(''); // 新的关键词
   const [newName, setNewName] = useState(''); // 新的名称
-  const [newNotificationChannelId, setNewNotificationChannelId] = useState(''); // 新的通知方式ID
+  const [newNotificationChannelIds, setNewNotificationChannelIds] = useState([]); // 新的通知方式ID数组
+  const [newGroupName, setNewGroupName] = useState(''); // 新的分组名称
   const [notificationChannels, setNotificationChannels] = useState([]); // 存储通知渠道
+  const [groups, setGroups] = useState([]); // 存储分组列表
+  const [selectedGroup, setSelectedGroup] = useState(''); // 当前选中的分组
+  const [groupedSources, setGroupedSources] = useState({}); // 按分组组织的RSS源
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(true);
@@ -29,6 +33,17 @@ const RssManagement = () => {
       if (!response.ok) throw new Error('获取RSS源失败');
       const data = await response.json();
       setSources(data);
+      
+      // 按分组组织数据
+      const grouped = data.reduce((acc, source) => {
+        const group = source.group_name || '未分组';
+        if (!acc[group]) {
+          acc[group] = [];
+        }
+        acc[group].push(source);
+        return acc;
+      }, {});
+      setGroupedSources(grouped);
     } catch (err) {
       setError('加载RSS源失败');
     } finally {
@@ -143,11 +158,14 @@ const RssManagement = () => {
         payload = { ids: selectedIds, newMonitorInterval: parseInt(newMonitorInterval) };
         break;
       case 'updateNotificationChannel':
-        if (!newNotificationChannelId) {
+        if (!newNotificationChannelIds || newNotificationChannelIds.length === 0) {
           setError('请选择新的通知方式进行批量更新');
           return;
         }
-        payload = { ids: selectedIds, newNotificationChannelId: parseInt(newNotificationChannelId) }; // 确保转换为整数
+        payload = { ids: selectedIds, newNotificationChannelIds: newNotificationChannelIds };
+        break;
+      case 'updateGroupName':
+        payload = { ids: selectedIds, newGroupName };
         break;
       case 'deleteSelected':
         handleDeleteSelected();
@@ -183,7 +201,8 @@ const RssManagement = () => {
       setNewBlacklistKeywords(''); // 清空黑名单关键词输入框
       setNewKeywords(''); // 清空关键词输入框
       setNewName(''); // 清空名称输入框
-      setNewNotificationChannelId(''); // 清空通知方式输入框
+      setNewNotificationChannelIds([]); // 清空通知方式输入框
+      setNewGroupName(''); // 清空分组名称输入框
       fetchSources(); // 刷新列表
     } catch (err) {
       setError('更新选中的RSS源失败');
@@ -291,6 +310,7 @@ const RssManagement = () => {
                   <option value="updateBlacklistKeywords">更新黑名单关键词</option>
                   <option value="updateMonitorInterval">更新监控间隔</option>
                   <option value="updateNotificationChannel">更新通知方式</option>
+                  <option value="updateGroupName">更新分组</option>
                   <option value="deleteSelected">删除选中项</option>
                 </select>
 
@@ -335,21 +355,42 @@ const RssManagement = () => {
                 )}
 
                 {bulkAction === 'updateNotificationChannel' && (
-                  <select
-                    id="notificationChannelId"
-                    name="notificationChannelId"
-                    value={newNotificationChannelId}
-                    onChange={(e) => setNewNotificationChannelId(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-md mr-2"
-                    required
-                  >
-                    <option value="">请选择通知方式</option>
-                    {notificationChannels.map(channel => (
-                      <option key={channel.id} value={channel.id}>
-                        {channel.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex flex-col space-y-2 p-3 border border-gray-300 rounded-md mr-2 bg-gray-50">
+                    <label className="text-sm font-medium text-gray-700">选择通知方式：</label>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {notificationChannels.map(channel => (
+                        <label key={channel.id} className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            value={channel.id}
+                            checked={newNotificationChannelIds.includes(channel.id)}
+                            onChange={(e) => {
+                              const channelId = parseInt(e.target.value);
+                              if (e.target.checked) {
+                                setNewNotificationChannelIds(prev => [...prev, channelId]);
+                              } else {
+                                setNewNotificationChannelIds(prev => prev.filter(id => id !== channelId));
+                              }
+                            }}
+                            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {channel.name} ({channel.type === 'bark' ? 'Bark' : 'Gotify'})
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {bulkAction === 'updateGroupName' && (
+                  <input
+                    type="text"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="新分组名称"
+                    className="p-2 border border-gray-300 rounded-md mr-2"
+                  />
                 )}
 
                 <button
@@ -370,6 +411,9 @@ const RssManagement = () => {
                   </th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     名称/标题
+                  </th>
+                  <th scope="col" className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    分组
                   </th>
                   <th scope="col" className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     关键词
@@ -412,6 +456,9 @@ const RssManagement = () => {
                         {source.name || source.title || '无名称/标题'}
                       </a>
                     </td>
+                    <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap">
+                      <div>{source.group_name || '未分组'}</div>
+                    </td>
                     <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap truncate max-w-sm">
                       <div>{source.keywords}</div>
                     </td>
@@ -422,7 +469,7 @@ const RssManagement = () => {
                       <div>{source.monitor_interval}</div>
                     </td>
                     <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap">
-                      <div>{source.notification_channel_name || '无'}</div> {/* 显示通知方式 */}
+                      <div>{source.notification_channel_names || '无'}</div> {/* 显示通知方式 */}
                     </td>
                     <td className="hidden md:table-cell px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                       {isValidDate(source.created_at)

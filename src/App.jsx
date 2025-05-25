@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import AddRssSource from './AddRssSource';
 import RssManagement from './RssManagement';
 import NotificationSettings from './NotificationSettings'; // 引入新的通知设置组件
+import GroupManagement from './GroupManagement'; // 引入分组管理组件
 import Navbar from './Navbar'; // 引入导航栏组件
 import EditRssSource from './EditRssSource'; // 引入编辑 RSS 源组件
 import Login from './Login'; // 引入登录组件
@@ -22,7 +23,7 @@ function App() {
                 <>
                   <Navbar />
                   <main className="flex-1 p-6">
-                    <RssManagement />
+                    <GroupManagement />
                   </main>
                 </>
               </ProtectedRoute>
@@ -53,6 +54,16 @@ function App() {
                   <Navbar />
                   <main className="flex-1 p-6">
                     <NotificationSettings />
+                  </main>
+                </>
+              </ProtectedRoute>
+            } />
+            <Route path="/group-management" element={
+              <ProtectedRoute>
+                <>
+                  <Navbar />
+                  <main className="flex-1 p-6">
+                    <GroupManagement />
                   </main>
                 </>
               </ProtectedRoute>

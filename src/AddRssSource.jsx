@@ -10,22 +10,47 @@ const AddRssSource = () => {
     keywords: '', 
     blacklistKeywords: '', 
     monitorInterval: '', 
-    notificationChannelId: '' // 新增字段用于存储选中的通知渠道ID
+    notificationChannelIds: [], // 修改为数组，支持多个通知渠道
+    groupName: '' // 新增分组字段
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [notificationChannels, setNotificationChannels] = useState([]); // 存储通知渠道列表
+  const [groups, setGroups] = useState([]); // 存储分组列表
   const navigate = useNavigate();
   const { getAuthHeaders } = useAuth();
 
   const handleChange = (e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value
-    }));
+    const { name, value, type, checked } = e.target;
+    
+    if (name === 'notificationChannelIds') {
+      // 处理复选框
+      const channelId = parseInt(value);
+      setFormData((prev) => {
+        const currentIds = prev.notificationChannelIds || [];
+        if (checked) {
+          // 添加到选中列表
+          return {
+            ...prev,
+            notificationChannelIds: [...currentIds, channelId]
+          };
+        } else {
+          // 从选中列表移除
+          return {
+            ...prev,
+            notificationChannelIds: currentIds.filter(id => id !== channelId)
+          };
+        }
+      });
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
-  // 获取所有通知渠道
+  // 获取所有通知渠道和分组
   useEffect(() => {
     const fetchNotificationChannels = async () => {
       try {
@@ -42,7 +67,23 @@ const AddRssSource = () => {
       }
     };
 
+    const fetchGroups = async () => {
+      try {
+        const response = await fetch(`${config.API_BASE_URL}/api/rss-groups`, {
+          headers: {
+            ...getAuthHeaders()
+          }
+        });
+        if (!response.ok) throw new Error('Failed to fetch groups');
+        const data = await response.json();
+        setGroups(data);
+      } catch (err) {
+        console.error('Error fetching groups:', err);
+      }
+    };
+
     fetchNotificationChannels();
+    fetchGroups();
   }, [getAuthHeaders]);
 
   // 添加新的 RSS 源
@@ -50,6 +91,12 @@ const AddRssSource = () => {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    // 验证至少选择一个通知方式
+    if (!formData.notificationChannelIds || formData.notificationChannelIds.length === 0) {
+      setError('请至少选择一个通知方式');
+      return;
+    }
 
     try {
       const response = await fetch(`${config.API_BASE_URL}/api/add-rss`, {
@@ -59,8 +106,7 @@ const AddRssSource = () => {
           ...getAuthHeaders()
         },
         body: JSON.stringify({
-          ...formData,
-          notificationChannelId: formData.notificationChannelId // 包含选中的通知渠道ID
+          ...formData
         }),
       });
 
@@ -68,7 +114,7 @@ const AddRssSource = () => {
 
       const data = await response.json();
       setSuccess('RSS源添加成功');
-      setFormData({ rssUrl: '', name: '', keywords: '', blacklistKeywords: '', monitorInterval: '', notificationChannelId: '' });
+      setFormData({ rssUrl: '', name: '', keywords: '', blacklistKeywords: '', monitorInterval: '', notificationChannelIds: [], groupName: '' });
       setTimeout(() => {
         navigate('/rss-management'); // 成功后跳转到RSS管理页面
       }, 2000);
@@ -173,24 +219,55 @@ const AddRssSource = () => {
         </div>
 
         <div>
-          <label htmlFor="notificationChannelId" className="block text-sm font-medium text-gray-700 mb-1">
-            通知方式
+          <label htmlFor="groupName" className="block text-sm font-medium text-gray-700 mb-1">
+            分组
           </label>
-          <select
-            id="notificationChannelId"
-            name="notificationChannelId"
-            value={formData.notificationChannelId}
+          <input
+            id="groupName"
+            name="groupName"
+            type="text"
+            value={formData.groupName}
             onChange={handleChange}
+            placeholder="输入分组名称（可选）"
+            list="groupsList"
             className="w-full p-2 border border-gray-300 rounded-md"
-            required
-          >
-            <option value="">请选择通知方式</option>
-            {notificationChannels.map(channel => (
-              <option key={channel.id} value={channel.id}>
-                {channel.name}
-              </option>
+          />
+          <datalist id="groupsList">
+            {groups.map((group, index) => (
+              <option key={index} value={group} />
             ))}
-          </select>
+          </datalist>
+          <p className="mt-1 text-sm text-gray-500">
+            可以输入新的分组名称，或从现有分组中选择
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-3">
+            通知方式（可多选）
+          </label>
+          <div className="space-y-2">
+            {notificationChannels.map(channel => (
+              <label key={channel.id} className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="notificationChannelIds"
+                  value={channel.id}
+                  checked={formData.notificationChannelIds.includes(channel.id)}
+                  onChange={handleChange}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">
+                  {channel.name} ({channel.type === 'bark' ? 'Bark' : 'Gotify'})
+                </span>
+              </label>
+            ))}
+          </div>
+          {formData.notificationChannelIds.length === 0 && (
+            <p className="mt-2 text-sm text-red-500">
+              请至少选择一个通知方式
+            </p>
+          )}
         </div>
 
         <button

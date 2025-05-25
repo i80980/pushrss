@@ -127,6 +127,62 @@ db.serialize(() => {
     }
   });
 
+  // 为现有的rss表添加group_name字段（如果不存在）
+  db.run(`
+    ALTER TABLE rss ADD COLUMN group_name TEXT DEFAULT '';
+  `, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding group_name column to rss table:', err);
+    } else if (!err) {
+      console.log('Added group_name column to rss table');
+    }
+  });
+
+  // 数据迁移：将现有的notification_channel_id迁移到关联表
+  db.all("SELECT id, notification_channel_id FROM rss WHERE notification_channel_id IS NOT NULL", [], (err, rows) => {
+    if (err) {
+      console.error('Error fetching RSS sources for migration:', err);
+      return;
+    }
+    
+    if (rows.length > 0) {
+      console.log(`Migrating ${rows.length} RSS sources to new notification system...`);
+      
+      rows.forEach(row => {
+        db.run(
+          "INSERT OR IGNORE INTO rss_notification_channels (rss_id, notification_channel_id) VALUES (?, ?)",
+          [row.id, row.notification_channel_id],
+          (err) => {
+            if (err) {
+              console.error(`Error migrating RSS source ${row.id}:`, err);
+            }
+          }
+        );
+      });
+      
+      console.log('Migration completed');
+    }
+  });
+
+  // 创建 rss_notification_channels 关联表，支持多对多关系
+  db.run(`
+    CREATE TABLE IF NOT EXISTS rss_notification_channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rss_id INTEGER NOT NULL,
+      notification_channel_id INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(rss_id) REFERENCES rss(id) ON DELETE CASCADE,
+      FOREIGN KEY(notification_channel_id) REFERENCES notifications(id) ON DELETE CASCADE,
+      UNIQUE(rss_id, notification_channel_id)
+    );
+  `, (err) => {
+    if (err) {
+      console.error('Error creating rss_notification_channels table:', err);
+    } else {
+      console.log('rss_notification_channels table created or already exists');
+    }
+  });
+
   // 创建 sent_messages 表，用于记录已发送的消息
   db.run(`
     CREATE TABLE IF NOT EXISTS sent_messages (
@@ -184,7 +240,7 @@ const recordSentMessage = (rssId, messageGuid, messageLink, messageTitle) => {
   });
 };
 
-const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId) => {
+const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelIds) => {
   try {
     const now = new Date();
     
@@ -236,7 +292,8 @@ const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId)
         }
 
         console.log(`Matching item found: ${item.title}`);
-        await sendNotification(sourceData.name, item.title, item.content, item.link, notificationChannelId);
+        // 发送到所有关联的通知渠道
+        await sendNotificationToMultipleChannels(sourceData.name, item.title, item.content, item.link, notificationChannelIds);
         
         // 记录已发送的消息
         await recordSentMessage(sourceData.id, item.guid, item.link, item.title);
@@ -312,6 +369,28 @@ const sendNotification = async (sourceName, itemTitle, itemContent, itemLink, ch
     console.error('Error sending notification:', error.message);
     throw error;
   }
+};
+
+// 发送通知到多个渠道
+const sendNotificationToMultipleChannels = async (sourceName, itemTitle, itemContent, itemLink, channelIds) => {
+  if (!channelIds || channelIds.length === 0) {
+    console.warn('No notification channels specified');
+    return;
+  }
+
+  const results = [];
+  for (const channelId of channelIds) {
+    try {
+      const result = await sendNotification(sourceName, itemTitle, itemContent, itemLink, channelId);
+      results.push({ channelId, success: true, result });
+      console.log(`Notification sent successfully to channel ${channelId}`);
+    } catch (error) {
+      results.push({ channelId, success: false, error: error.message });
+      console.error(`Failed to send notification to channel ${channelId}:`, error.message);
+    }
+  }
+  
+  return results;
 };
 
 const sendToGotify = async (channel, title, itemTitle, content, itemLink, imgLinks) => {
@@ -402,7 +481,7 @@ const sendToBark = async (channel, title, itemTitle, content, itemLink, imgLinks
 };
 
 app.post('/api/add-rss', async (req, res) => {
-  const { rssUrl, name, keywords, blacklistKeywords, monitorInterval, notificationChannelId } = req.body;
+  const { rssUrl, name, keywords, blacklistKeywords, monitorInterval, notificationChannelIds, groupName } = req.body;
 
   try {
     // 输入验证
@@ -424,32 +503,45 @@ app.post('/api/add-rss', async (req, res) => {
       return res.status(400).json({ error: 'At least one keyword is required' });
     }
 
+    // 处理通知渠道ID
+    const channelIds = Array.isArray(notificationChannelIds) 
+      ? notificationChannelIds.filter(id => id && !isNaN(id)).map(id => parseInt(id))
+      : (notificationChannelIds ? [parseInt(notificationChannelIds)] : []);
+
     // 设置默认监测间隔为 30 分钟
     const interval = monitorInterval || 30;
+    const group = groupName || '';
 
-    // 保存到数据库
+    // 保存到数据库（不再保存notification_channel_id字段）
     db.run(
-      "INSERT INTO rss (url, name, keywords, blacklist_keywords, monitor_interval, notification_channel_id) VALUES (?, ?, ?, ?, ?, ?)",
-      [rssUrl, name, keywordsArray.join(', '), blacklistArray.join(', '), interval, notificationChannelId],
+      "INSERT INTO rss (url, name, keywords, blacklist_keywords, monitor_interval, group_name) VALUES (?, ?, ?, ?, ?, ?)",
+      [rssUrl, name, keywordsArray.join(', '), blacklistArray.join(', '), interval, group],
       async function(err) {
         if (err) {
           console.error('Database error:', err);
           return res.status(500).json({ error: 'Failed to save RSS source' });
         }
 
+        const rssId = this.lastID;
+
         try {
+          // 设置通知渠道关联
+          if (channelIds.length > 0) {
+            await setRssNotificationChannels(rssId, channelIds);
+          }
+
           // 尝试首次抓取
-          await fetchRss(rssUrl, keywordsArray, blacklistArray, notificationChannelId);
+          await fetchRss(rssUrl, keywordsArray, blacklistArray, channelIds);
           res.json({ 
             message: 'RSS source added successfully',
-            id: this.lastID 
+            id: rssId 
           });
         } catch (fetchError) {
           // 即使抓取失败也保留数据库记录，但返回警告
           res.json({ 
             message: 'RSS source added but initial fetch failed',
             warning: fetchError.message,
-            id: this.lastID
+            id: rssId
           });
         }
       }
@@ -461,49 +553,228 @@ app.post('/api/add-rss', async (req, res) => {
 });
 
 // 获取所有 RSS 源及其通知渠道信息
-app.get('/api/rss-sources', (req, res) => {
+app.get('/api/rss-sources', async (req, res) => {
+  try {
+    const sources = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT * FROM rss ORDER BY rss.group_name, rss.created_at DESC
+      `, [], (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(rows);
+      });
+    });
+
+    // 为每个RSS源获取关联的通知渠道
+    const sourcesWithChannels = await Promise.all(sources.map(async (source) => {
+      const channelIds = await getRssNotificationChannels(source.id);
+      
+      // 获取通知渠道详细信息
+      const channels = await Promise.all(channelIds.map(async (channelId) => {
+        return await getNotificationChannel(channelId);
+      }));
+      
+      return {
+        ...source,
+        notification_channels: channels.filter(channel => channel), // 过滤掉null值
+        notification_channel_names: channels.filter(channel => channel).map(channel => channel.name).join(', ')
+      };
+    }));
+
+    res.json(sourcesWithChannels);
+  } catch (err) {
+    console.error('Error fetching RSS sources:', err);
+    res.status(500).json({ error: 'Failed to fetch RSS sources' });
+  }
+});
+
+// 获取所有分组
+app.get('/api/rss-groups', (req, res) => {
   db.all(`
-    SELECT 
-      rss.*,
-      notifications.name AS notification_channel_name
-    FROM 
-      rss
-    LEFT JOIN 
-      notifications ON rss.notification_channel_id = notifications.id
-    ORDER BY 
-      rss.created_at DESC
+    SELECT DISTINCT group_name 
+    FROM rss 
+    WHERE group_name != '' 
+    ORDER BY group_name
   `, [], (err, rows) => {
     if (err) {
-      console.error('Error fetching RSS sources:', err);
-      return res.status(500).json({ error: 'Failed to fetch RSS sources' });
+      console.error('Error fetching RSS groups:', err);
+      return res.status(500).json({ error: 'Failed to fetch RSS groups' });
     }
-    res.json(rows);
+    const groups = rows.map(row => row.group_name);
+    res.json(groups);
   });
 });
 
-// 获取单个 RSS 源及其通知渠道信息
-app.get('/api/rss-sources/:id', (req, res) => {
-  const id = req.params.id;
-  db.get(`
-    SELECT 
-      rss.*,
-      notifications.name AS notification_channel_name
-    FROM 
-      rss
-    LEFT JOIN 
-      notifications ON rss.notification_channel_id = notifications.id
-    WHERE 
-      rss.id = ?
-  `, [id], (err, row) => {
-    if (err) {
-      console.error('Error fetching RSS source:', err);
-      return res.status(500).json({ error: 'Failed to fetch RSS source' });
+// 根据分组获取RSS源
+app.get('/api/rss-sources/group/:groupName', async (req, res) => {
+  const groupName = req.params.groupName;
+  
+  try {
+    const sources = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT * FROM rss WHERE group_name = ? ORDER BY created_at DESC
+      `, [groupName], (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(rows);
+      });
+    });
+
+    // 为每个RSS源获取关联的通知渠道
+    const sourcesWithChannels = await Promise.all(sources.map(async (source) => {
+      const channelIds = await getRssNotificationChannels(source.id);
+      
+      // 获取通知渠道详细信息
+      const channels = await Promise.all(channelIds.map(async (channelId) => {
+        return await getNotificationChannel(channelId);
+      }));
+      
+      return {
+        ...source,
+        notification_channels: channels.filter(channel => channel),
+        notification_channel_names: channels.filter(channel => channel).map(channel => channel.name).join(', ')
+      };
+    }));
+
+    res.json(sourcesWithChannels);
+  } catch (err) {
+    console.error('Error fetching RSS sources by group:', err);
+    res.status(500).json({ error: 'Failed to fetch RSS sources by group' });
+  }
+});
+
+// 批量更新分组内的RSS源
+app.post('/api/bulk-update-group', async (req, res) => {
+  const { groupName, newName, newKeywords, newMonitorInterval, newBlacklistKeywords, newNotificationChannelIds, newGroupName } = req.body;
+
+  // 验证请求数据
+  if (!groupName) {
+    return res.status(400).json({ error: 'Group name is required.' });
+  }
+
+  try {
+    // 首先获取该分组内所有RSS源的ID
+    const rssIds = await new Promise((resolve, reject) => {
+      db.all("SELECT id FROM rss WHERE group_name = ?", [groupName], (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(rows.map(row => row.id));
+      });
+    });
+
+    if (rssIds.length === 0) {
+      return res.status(404).json({ error: 'No RSS sources found in this group.' });
     }
-    if (!row) {
+
+    let queryParts = [];
+    let params = [];
+
+    if (newName !== undefined) {
+      queryParts.push('name = ?');
+      params.push(newName);
+    }
+
+    if (newKeywords) {
+      queryParts.push('keywords = ?');
+      params.push(newKeywords);
+    }
+
+    if (typeof newMonitorInterval === 'number') {
+      queryParts.push('monitor_interval = ?');
+      params.push(newMonitorInterval);
+    }
+
+    if (newBlacklistKeywords) {
+      queryParts.push('blacklist_keywords = ?');
+      params.push(newBlacklistKeywords);
+    }
+
+    if (newGroupName !== undefined) {
+      queryParts.push('group_name = ?');
+      params.push(newGroupName);
+    }
+
+    let updatedCount = 0;
+
+    // 如果有基本字段需要更新
+    if (queryParts.length > 0) {
+      const fullQuery = `UPDATE rss SET ${queryParts.join(', ')} WHERE group_name = ?`;
+      const fullParams = [...params, groupName];
+
+      await new Promise((resolve, reject) => {
+        db.run(fullQuery, fullParams, function(err) {
+          if (err) {
+            return reject(err);
+          }
+          updatedCount = this.changes;
+          resolve();
+        });
+      });
+    }
+
+    // 如果需要更新通知渠道
+    if (newNotificationChannelIds && Array.isArray(newNotificationChannelIds)) {
+      const channelIds = newNotificationChannelIds.filter(id => id && !isNaN(id)).map(id => parseInt(id));
+      
+      // 为该分组内的每个RSS源更新通知渠道关联
+      for (const rssId of rssIds) {
+        await setRssNotificationChannels(rssId, channelIds);
+      }
+      
+      if (updatedCount === 0) {
+        updatedCount = rssIds.length; // 如果只更新了通知渠道，设置更新数量为RSS源数量
+      }
+    }
+
+    if (queryParts.length === 0 && (!newNotificationChannelIds || newNotificationChannelIds.length === 0)) {
+      return res.status(400).json({ error: 'No fields to update provided.' });
+    }
+
+    res.json({ message: 'RSS sources in group updated successfully', updatedCount: updatedCount });
+  } catch (err) {
+    console.error('Error updating RSS sources in group:', err);
+    res.status(500).json({ error: 'Failed to update RSS sources in group' });
+  }
+});
+
+// 获取单个 RSS 源及其通知渠道信息
+app.get('/api/rss-sources/:id', async (req, res) => {
+  const id = req.params.id;
+  
+  try {
+    const source = await new Promise((resolve, reject) => {
+      db.get("SELECT * FROM rss WHERE id = ?", [id], (err, row) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(row);
+      });
+    });
+
+    if (!source) {
       return res.status(404).json({ error: 'RSS source not found' });
     }
-    res.json(row);
-  });
+
+    // 获取关联的通知渠道
+    const channelIds = await getRssNotificationChannels(source.id);
+    const channels = await Promise.all(channelIds.map(async (channelId) => {
+      return await getNotificationChannel(channelId);
+    }));
+
+    const sourceWithChannels = {
+      ...source,
+      notification_channels: channels.filter(channel => channel),
+      notification_channel_ids: channelIds
+    };
+
+    res.json(sourceWithChannels);
+  } catch (err) {
+    console.error('Error fetching RSS source:', err);
+    res.status(500).json({ error: 'Failed to fetch RSS source' });
+  }
 });
 
 // 删除 RSS 源
@@ -519,58 +790,84 @@ app.delete('/api/rss-sources/:id', (req, res) => {
 });
 
 // 批量更新 RSS 源
-app.post('/api/bulk-update-rss', (req, res) => {
-  const { ids, newName, newKeywords, newMonitorInterval, newBlacklistKeywords, newNotificationChannelId } = req.body;
+app.post('/api/bulk-update-rss', async (req, res) => {
+  const { ids, newName, newKeywords, newMonitorInterval, newBlacklistKeywords, newNotificationChannelIds, newGroupName } = req.body;
 
   // 验证请求数据
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'Invalid request. Please provide valid IDs.' });
   }
 
-  let queryParts = [];
-  let params = [];
+  try {
+    let queryParts = [];
+    let params = [];
 
-  if (newName !== undefined) {
-    queryParts.push('name = ?');
-    params.push(newName);
-  }
-
-  if (newKeywords) {
-    queryParts.push('keywords = ?');
-    params.push(newKeywords);
-  }
-
-  if (typeof newMonitorInterval === 'number') {
-    queryParts.push('monitor_interval = ?');
-    params.push(newMonitorInterval);
-  }
-
-  if (newBlacklistKeywords) {
-    queryParts.push('blacklist_keywords = ?');
-    params.push(newBlacklistKeywords);
-  }
-
-  if (newNotificationChannelId !== undefined) {
-    queryParts.push('notification_channel_id = ?');
-    params.push(newNotificationChannelId);
-  }
-
-  if (queryParts.length === 0) {
-    return res.status(400).json({ error: 'No fields to update provided.' });
-  }
-
-  // 构建完整的 SQL 查询
-  const fullQuery = `UPDATE rss SET ${queryParts.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`;
-  params = [...params, ...ids];
-
-  db.run(fullQuery, params, function(err) {
-    if (err) {
-      console.error('Error updating RSS sources:', err);
-      return res.status(500).json({ error: 'Failed to update selected RSS sources' });
+    if (newName !== undefined) {
+      queryParts.push('name = ?');
+      params.push(newName);
     }
 
-    res.json({ message: 'RSS sources updated successfully', updatedCount: this.changes });
-  });
+    if (newKeywords) {
+      queryParts.push('keywords = ?');
+      params.push(newKeywords);
+    }
+
+    if (typeof newMonitorInterval === 'number') {
+      queryParts.push('monitor_interval = ?');
+      params.push(newMonitorInterval);
+    }
+
+    if (newBlacklistKeywords) {
+      queryParts.push('blacklist_keywords = ?');
+      params.push(newBlacklistKeywords);
+    }
+
+    if (newGroupName !== undefined) {
+      queryParts.push('group_name = ?');
+      params.push(newGroupName);
+    }
+
+    let updatedCount = 0;
+
+    // 如果有基本字段需要更新
+    if (queryParts.length > 0) {
+      const fullQuery = `UPDATE rss SET ${queryParts.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`;
+      const fullParams = [...params, ...ids];
+
+      await new Promise((resolve, reject) => {
+        db.run(fullQuery, fullParams, function(err) {
+          if (err) {
+            return reject(err);
+          }
+          updatedCount = this.changes;
+          resolve();
+        });
+      });
+    }
+
+    // 如果需要更新通知渠道
+    if (newNotificationChannelIds && Array.isArray(newNotificationChannelIds)) {
+      const channelIds = newNotificationChannelIds.filter(id => id && !isNaN(id)).map(id => parseInt(id));
+      
+      // 为每个RSS源更新通知渠道关联
+      for (const rssId of ids) {
+        await setRssNotificationChannels(rssId, channelIds);
+      }
+      
+      if (updatedCount === 0) {
+        updatedCount = ids.length; // 如果只更新了通知渠道，设置更新数量为RSS源数量
+      }
+    }
+
+    if (queryParts.length === 0 && (!newNotificationChannelIds || newNotificationChannelIds.length === 0)) {
+      return res.status(400).json({ error: 'No fields to update provided.' });
+    }
+
+    res.json({ message: 'RSS sources updated successfully', updatedCount: updatedCount });
+  } catch (err) {
+    console.error('Error updating RSS sources:', err);
+    res.status(500).json({ error: 'Failed to update selected RSS sources' });
+  }
 });
 
 // 添加通知渠道
@@ -722,6 +1019,57 @@ const getNotificationChannel = (id) => {
   });
 };
 
+// 获取RSS源关联的所有通知渠道ID
+const getRssNotificationChannels = (rssId) => {
+  return new Promise((resolve, reject) => {
+    db.all(
+      "SELECT notification_channel_id FROM rss_notification_channels WHERE rss_id = ?", 
+      [rssId], 
+      (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(rows.map(row => row.notification_channel_id));
+      }
+    );
+  });
+};
+
+// 设置RSS源的通知渠道
+const setRssNotificationChannels = (rssId, channelIds) => {
+  return new Promise((resolve, reject) => {
+    // 先删除现有的关联
+    db.run("DELETE FROM rss_notification_channels WHERE rss_id = ?", [rssId], (err) => {
+      if (err) {
+        return reject(err);
+      }
+      
+      // 如果没有新的渠道ID，直接返回
+      if (!channelIds || channelIds.length === 0) {
+        return resolve();
+      }
+      
+      // 插入新的关联
+      const placeholders = channelIds.map(() => '(?, ?)').join(', ');
+      const values = [];
+      channelIds.forEach(channelId => {
+        values.push(rssId, channelId);
+      });
+      
+      db.run(
+        `INSERT INTO rss_notification_channels (rss_id, notification_channel_id) VALUES ${placeholders}`,
+        values,
+        function(err) {
+          if (err) {
+            return reject(err);
+          }
+          resolve();
+        }
+      );
+    });
+  });
+};
+
 // 测试单个 RSS 源
 app.get('/api/test-rss/:id', async (req, res) => {
   const { id } = req.params;
@@ -744,8 +1092,11 @@ app.get('/api/test-rss/:id', async (req, res) => {
     const keywords = source.keywords.split(', ').map(k => k.trim());
     const blacklistKeywords = source.blacklist_keywords.split(', ').map(k => k.trim());
 
+    // 获取该RSS源关联的所有通知渠道
+    const channelIds = await getRssNotificationChannels(source.id);
+
     // 进行测试抓取
-    await testFetchRss(source.url, keywords, blacklistKeywords, source.notification_channel_id);
+    await testFetchRss(source.url, keywords, blacklistKeywords, channelIds);
 
     res.json({ message: 'RSS 源测试成功' });
   } catch (error) {
@@ -754,7 +1105,7 @@ app.get('/api/test-rss/:id', async (req, res) => {
   }
 });
 
-const testFetchRss = async (url, keywords, blacklistKeywords, notificationChannelId) => {
+const testFetchRss = async (url, keywords, blacklistKeywords, notificationChannelIds) => {
   try {
     // 获取 RSS 源的数据，以便获取名称
     const sourceData = await getSourceData(url);
@@ -795,8 +1146,8 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
         }
 
         console.log(`Matching item found: ${item.title}`);
-        // 使用相同的sendNotification函数，确保测试消息也使用正确的通知格式
-        await sendNotification(sourceData.name, item.title, item.content, item.link, notificationChannelId);
+        // 发送到所有关联的通知渠道
+        await sendNotificationToMultipleChannels(sourceData.name, item.title, item.content, item.link, notificationChannelIds);
         
         // 记录已发送的消息
         await recordSentMessage(sourceData.id, item.guid, item.link, item.title);
@@ -811,7 +1162,7 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
 // 编辑单个 RSS 源
 app.put('/api/rss-sources/:id', async (req, res) => {
   const id = req.params.id;
-  const { name, url, keywords, blacklist_keywords, monitor_interval, notification_channel_id } = req.body;
+  const { name, url, keywords, blacklist_keywords, monitor_interval, notification_channel_ids, group_name } = req.body;
 
   try {
     // 输入验证
@@ -833,22 +1184,31 @@ app.put('/api/rss-sources/:id', async (req, res) => {
       return res.status(400).json({ error: '至少需要一个关键词' });
     }
 
+    // 处理通知渠道ID
+    const channelIds = Array.isArray(notification_channel_ids) 
+      ? notification_channel_ids.filter(id => id && !isNaN(id)).map(id => parseInt(id))
+      : (notification_channel_ids ? [parseInt(notification_channel_ids)] : []);
+
     // 设置默认监测间隔为 30 分钟
     const interval = monitor_interval || 30;
+    const group = group_name || '';
 
-    // 更新数据库中的 RSS 源
+    // 更新数据库中的 RSS 源（不再更新notification_channel_id字段）
     db.run(
-      "UPDATE rss SET name = ?, url = ?, keywords = ?, blacklist_keywords = ?, monitor_interval = ?, notification_channel_id = ? WHERE id = ?",
-      [name, url, keywordsArray.join(', '), blacklistArray.join(', '), interval, notification_channel_id, id],
+      "UPDATE rss SET name = ?, url = ?, keywords = ?, blacklist_keywords = ?, monitor_interval = ?, group_name = ? WHERE id = ?",
+      [name, url, keywordsArray.join(', '), blacklistArray.join(', '), interval, group, id],
       async function(err) {
         if (err) {
           console.error('数据库错误:', err);
           return res.status(500).json({ error: '无法更新 RSS 源' });
         }
 
-        // 尝试重新抓取以反映更改
         try {
-          await fetchRss(url, keywordsArray, blacklistArray, notification_channel_id);
+          // 更新通知渠道关联
+          await setRssNotificationChannels(id, channelIds);
+
+          // 尝试重新抓取以反映更改
+          await fetchRss(url, keywordsArray, blacklistArray, channelIds);
           res.json({ 
             message: 'RSS 源更新成功',
             id: id 
@@ -915,7 +1275,9 @@ const checkAllRssSources = async () => {
       const keywords = source.keywords.split(', ').map(k => k.trim());
       const blacklistKeywords = source.blacklist_keywords.split(', ').map(k => k.trim());
       try {
-        await fetchRss(source.url, keywords, blacklistKeywords, source.notification_channel_id);
+        // 获取该RSS源关联的所有通知渠道
+        const channelIds = await getRssNotificationChannels(source.id);
+        await fetchRss(source.url, keywords, blacklistKeywords, channelIds);
       } catch (error) {
         console.error(`Error fetching RSS source ${source.url}:`, error);
       }

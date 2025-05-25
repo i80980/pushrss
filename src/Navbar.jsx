@@ -21,6 +21,11 @@ const Navbar = () => {
         </div>
         <ul className="flex space-x-4">
           <li>
+            <Link to="/" className="text-gray-300 hover:text-white">
+              分组管理
+            </Link>
+          </li>
+          <li>
             <Link to="/rss-management" className="text-gray-300 hover:text-white">
               RSS源
             </Link>
