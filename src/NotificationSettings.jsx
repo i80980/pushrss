@@ -5,6 +5,7 @@ import config from './config';
 const NotificationSettings = () => {
   const [newChannel, setNewChannel] = useState({
     name: '',
+    type: 'gotify',
     endpoint: '',
     active: true
   });
@@ -55,6 +56,7 @@ const NotificationSettings = () => {
       setSuccess(data.message);
       setNewChannel({
         name: '',
+        type: 'gotify',
         endpoint: '',
         active: true
       });
@@ -126,6 +128,7 @@ const NotificationSettings = () => {
   const [editingId, setEditingId] = useState(null);
   const [editChannel, setEditChannel] = useState({
     name: '',
+    type: 'gotify',
     endpoint: '',
     active: true
   });
@@ -139,6 +142,7 @@ const NotificationSettings = () => {
     setEditingId(null);
     setEditChannel({
       name: '',
+      type: 'gotify',
       endpoint: '',
       active: true
     });
@@ -214,17 +218,40 @@ const NotificationSettings = () => {
             />
           </div>
 
-          <div className={`md:block ${editingId !== null ? 'block' : 'hidden'}`}>
-            <label htmlFor="endpoint" className="block text-sm font-medium text-gray-700">URL</label>
+          <div>
+            <label htmlFor="type" className="block text-sm font-medium text-gray-700">通知类型</label>
+            <select
+              id="type"
+              name="type"
+              value={newChannel.type}
+              onChange={handleChange}
+              className="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              required
+            >
+              <option value="gotify">Gotify</option>
+              <option value="bark">Bark</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <label htmlFor="endpoint" className="block text-sm font-medium text-gray-700">
+              {newChannel.type === 'bark' ? 'Bark URL (例如: https://api.day.app/your-key)' : 'Gotify URL'}
+            </label>
             <input
               type="text"
               id="endpoint"
               name="endpoint"
               value={newChannel.endpoint}
               onChange={handleChange}
+              placeholder={newChannel.type === 'bark' ? 'https://api.day.app/your-key' : 'http://your-gotify-server/message'}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
               required
             />
+            {newChannel.type === 'bark' && (
+              <p className="mt-1 text-sm text-gray-500">
+                请输入完整的Bark推送URL，包含您的设备key。例如：https://api.day.app/your-device-key
+              </p>
+            )}
           </div>
 
           <div className="flex items-center mt-6">
@@ -256,6 +283,9 @@ const NotificationSettings = () => {
                 名称
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                类型
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 URL
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -279,6 +309,17 @@ const NotificationSettings = () => {
                         onChange={handleEditChange}
                         className="border border-gray-300 rounded-md p-2"
                       />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <select
+                        name="type"
+                        value={editChannel.type || 'gotify'}
+                        onChange={handleEditChange}
+                        className="border border-gray-300 rounded-md p-2"
+                      >
+                        <option value="gotify">Gotify</option>
+                        <option value="bark">Bark</option>
+                      </select>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <input
@@ -316,6 +357,15 @@ const NotificationSettings = () => {
                 ) : (
                   <>
                     <td className="px-6 py-4 whitespace-nowrap">{channel.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs rounded-full ${
+                        channel.type === 'bark' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {channel.type === 'bark' ? 'Bark' : 'Gotify'}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">{channel.endpoint}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {channel.active ? '是' : '否'}

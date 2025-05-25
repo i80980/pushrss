@@ -103,6 +103,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT DEFAULT '', -- 名称
+      type TEXT DEFAULT 'gotify', -- 通知类型: gotify, bark
       endpoint TEXT NOT NULL, -- URL
       active BOOLEAN DEFAULT TRUE, -- 是否激活
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -112,6 +113,17 @@ db.serialize(() => {
       console.error('Error creating notifications table:', err);
     } else {
       console.log('notifications table created or already exists');
+    }
+  });
+
+  // 为现有的notifications表添加type字段（如果不存在）
+  db.run(`
+    ALTER TABLE notifications ADD COLUMN type TEXT DEFAULT 'gotify';
+  `, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding type column to notifications table:', err);
+    } else if (!err) {
+      console.log('Added type column to notifications table');
     }
   });
 
@@ -224,7 +236,7 @@ const fetchRss = async (url, keywords, blacklistKeywords, notificationChannelId)
         }
 
         console.log(`Matching item found: ${item.title}`);
-        await sendToGotify(sourceData.name, item.title, item.content, item.link, notificationChannelId);
+        await sendNotification(sourceData.name, item.title, item.content, item.link, notificationChannelId);
         
         // 记录已发送的消息
         await recordSentMessage(sourceData.id, item.guid, item.link, item.title);
@@ -263,12 +275,8 @@ const updateLastChecked = (url, date) => {
   });
 };
 
-const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channelId) => {
+const sendNotification = async (sourceName, itemTitle, itemContent, itemLink, channelId) => {
   try {
-    if (!config.gotify.url || !config.gotify.token) {
-      throw new Error('Gotify configuration is missing');
-    }
-
     // 根据 channelId 获取通知渠道信息
     const channel = await getNotificationChannel(channelId);
     if (!channel || !channel.active) {
@@ -292,7 +300,26 @@ const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channe
     
     // 去除HTML标签
     content = content.replace(/<[^>]*>/g, '');
-    
+
+    // 根据通知类型发送消息
+    if (channel.type === 'bark') {
+      return await sendToBark(channel, title, itemTitle, content, itemLink, imgLinks);
+    } else {
+      // 默认为Gotify
+      return await sendToGotify(channel, title, itemTitle, content, itemLink, imgLinks);
+    }
+  } catch (error) {
+    console.error('Error sending notification:', error.message);
+    throw error;
+  }
+};
+
+const sendToGotify = async (channel, title, itemTitle, content, itemLink, imgLinks) => {
+  try {
+    if (!config.gotify.url || !config.gotify.token) {
+      throw new Error('Gotify configuration is missing');
+    }
+
     // 使用Markdown格式化消息
     // 标题加粗并添加emoji
     let markdownMessage = `#### **${itemTitle}**\n\n`;
@@ -334,6 +361,42 @@ const sendToGotify = async (sourceName, itemTitle, itemContent, itemLink, channe
     return response.data;
   } catch (error) {
     console.error('Error sending to Gotify:', error.message);
+    throw error;
+  }
+};
+
+const sendToBark = async (channel, title, itemTitle, content, itemLink, imgLinks) => {
+  try {
+    // Bark消息格式化
+    let barkMessage = `${itemTitle}\n\n`;
+    barkMessage += `${content}\n\n`;
+    barkMessage += `🔗 链接: ${itemLink}`;
+    
+    // 添加图片链接
+    if (imgLinks.length > 0) {
+      barkMessage += `\n\n📷 图片:\n`;
+      imgLinks.forEach((link, index) => {
+        barkMessage += `图片${index + 1}: ${link}\n`;
+      });
+    }
+    
+    // 添加时间戳
+    const now = new Date();
+    barkMessage += `\n⏱️ ${now.toLocaleString('zh-CN')}`;
+
+    // 发送POST请求到Bark
+    const response = await axios.post(channel.endpoint, {
+      title: title,
+      body: barkMessage,
+      url: itemLink,
+      group: 'RSS推送',
+      isArchive: 1
+    });
+
+    console.log('Notification sent to Bark');
+    return response.data;
+  } catch (error) {
+    console.error('Error sending to Bark:', error.message);
     throw error;
   }
 };
@@ -512,20 +575,21 @@ app.post('/api/bulk-update-rss', (req, res) => {
 
 // 添加通知渠道
 app.post('/api/notifications', (req, res) => {
-  const { name, endpoint, active } = req.body;
+  const { name, type, endpoint, active } = req.body;
 
   // 输入验证
   if (!endpoint) {
     return res.status(400).json({ error: 'Endpoint is a required field' });
   }
 
-  // 设置默认是否激活为 true
+  // 设置默认值
+  const channelType = type || 'gotify';
   const isActive = active !== undefined ? active : true;
 
   // 保存到数据库
   db.run(
-    "INSERT INTO notifications (name, endpoint, active) VALUES (?, ?, ?)",
-    [name, endpoint, isActive],
+    "INSERT INTO notifications (name, type, endpoint, active) VALUES (?, ?, ?, ?)",
+    [name, channelType, endpoint, isActive],
     function(err) {
       if (err) {
         console.error('Database error:', err);
@@ -566,20 +630,21 @@ app.delete('/api/notifications/:id', (req, res) => {
 // 更新通知渠道
 app.put('/api/notifications/:id', (req, res) => {
   const id = req.params.id;
-  const { name, endpoint, active } = req.body;
+  const { name, type, endpoint, active } = req.body;
 
   // 输入验证
   if (!endpoint) {
     return res.status(400).json({ error: 'Endpoint is a required field' });
   }
 
-  // 设置默认是否激活为 true
+  // 设置默认值
+  const channelType = type || 'gotify';
   const isActive = active !== undefined ? active : true;
 
   // 更新数据库
   db.run(
-    "UPDATE notifications SET name = ?, endpoint = ?, active = ? WHERE id = ?",
-    [name, endpoint, isActive, id],
+    "UPDATE notifications SET name = ?, type = ?, endpoint = ?, active = ? WHERE id = ?",
+    [name, channelType, endpoint, isActive, id],
     function(err) {
       if (err) {
         console.error('Database error:', err);
@@ -636,7 +701,7 @@ console.log('Hello World');
     const testLink = `https://example.com/test`;
 
     // 发送测试消息
-    await sendToGotify(testSourceName, testTitle, testContent, testLink, id);
+    await sendNotification(testSourceName, testTitle, testContent, testLink, id);
 
     res.json({ message: '测试消息发送成功' });
   } catch (error) {
@@ -730,8 +795,8 @@ const testFetchRss = async (url, keywords, blacklistKeywords, notificationChanne
         }
 
         console.log(`Matching item found: ${item.title}`);
-        // 使用相同的sendToGotify函数，确保测试消息也使用Markdown格式
-        await sendToGotify(sourceData.name, item.title, item.content, item.link, notificationChannelId);
+        // 使用相同的sendNotification函数，确保测试消息也使用正确的通知格式
+        await sendNotification(sourceData.name, item.title, item.content, item.link, notificationChannelId);
         
         // 记录已发送的消息
         await recordSentMessage(sourceData.id, item.guid, item.link, item.title);
